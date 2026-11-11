@@ -1,42 +1,59 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
-import Login from './pages/Login';
+import { BrowserRouter, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
 
+import Login from './pages/Login';
+import UserDashboard from './pages/UserDashboard';
+import ProtectedRoute from './components/ProtectedRoute';
+import { ROLES, clearSession, getSession } from './auth';
 
 /**
- * Componente reutilizável para telas ainda não desenvolvidas.
- * Mantém a identidade visual do MainPass (dark mode + índigo).
+ * Tela provisória para páginas ainda não desenvolvidas.
+ * Com sessão ativa, oferece "Sair"; sem sessão, volta ao login.
  */
 function Placeholder({ title, subtitle, icon }) {
-  return (
-    <div className="relative min-h-screen flex items-center justify-center overflow-hidden p-8">
-      {/* Efeitos de luz no fundo (mesmo padrão do Login) */}
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-indigo-600/20 rounded-full blur-[100px] pointer-events-none"></div>
-      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-600/10 rounded-full blur-[100px] pointer-events-none"></div>
+  const navigate = useNavigate();
+  const session = getSession();
 
-      <div className="relative z-10 text-center bg-brand-800/60 backdrop-blur-xl border border-white/10 rounded-3xl shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] px-10 py-12 max-w-md w-full">
-        <div className="inline-flex items-center justify-center w-14 h-14 bg-gradient-to-br from-indigo-500 to-indigo-700 rounded-full mb-4 shadow-[0_8px_20px_rgba(99,102,241,0.35)]">
-          <i className={`fas ${icon} text-white text-2xl`}></i>
+  const handleLogout = () => {
+    clearSession();
+    navigate('/', { replace: true });
+  };
+
+  const actionClass =
+    'mt-8 inline-flex items-center gap-2 rounded text-sm font-medium text-accent-muted transition-colors duration-200 hover:text-indigo-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70';
+
+  return (
+    <div className="flex min-h-screen items-center justify-center p-6">
+      <div className="w-full max-w-md rounded-xl border border-white/[0.08] bg-brand-800 px-8 py-10 text-center shadow-card">
+        <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-lg border border-white/[0.08] bg-brand-700 text-slate-300">
+          <i className={`fas ${icon}`}></i>
         </div>
 
-        <h1 className="text-3xl font-extrabold text-white tracking-tight">{title}</h1>
-        <p className="text-slate-400 mt-2 text-sm">{subtitle}</p>
+        <h1 className="mt-5 text-xl font-semibold tracking-tight text-slate-100">{title}</h1>
+        <p className="mt-1.5 text-sm text-slate-400">{subtitle}</p>
 
-        <Link
-          to="/"
-          className="inline-flex items-center mt-8 text-sm font-semibold text-indigo-400 hover:text-indigo-300 transition-colors"
-        >
-          <i className="fas fa-arrow-left mr-2"></i>
-          Voltar ao login
-        </Link>
+        {session?.user?.name && (
+          <p className="mt-4 text-xs text-slate-500">
+            Sessão ativa: <span className="text-slate-300">{session.user.name}</span> ({session.role})
+          </p>
+        )}
+
+        {session ? (
+          <button type="button" onClick={handleLogout} className={actionClass}>
+            <i className="fas fa-right-from-bracket text-xs"></i>
+            Sair da conta
+          </button>
+        ) : (
+          <Link to="/" className={actionClass}>
+            <i className="fas fa-arrow-left text-xs"></i>
+            Voltar ao login
+          </Link>
+        )}
       </div>
     </div>
   );
 }
 
-/**
- * Tela 404 para rotas inexistentes.
- */
 function NotFound() {
   return (
     <Placeholder
@@ -50,44 +67,37 @@ function NotFound() {
 export default function App() {
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-brand-900 text-slate-300 font-sans antialiased">
+      <div className="min-h-screen bg-brand-900 font-sans text-slate-400 antialiased">
         <Routes>
+          {/* Pública: já redireciona quem possui sessão válida */}
           <Route path="/" element={<Login />} />
 
-          <Route
-            path="/admin"
-            element={
-              <Placeholder
-                title="Painel do Morador / Admin"
-                subtitle="Em desenvolvimento"
-                icon="fa-user-shield"
-              />
-            }
-          />
+          {/* Convidado / morador */}
+          <Route element={<ProtectedRoute roles={[ROLES.USER]} />}>
+            <Route path="/dashboard" element={<UserDashboard />} />
+          </Route>
 
-          <Route
-            path="/portaria"
-            element={
-              <Placeholder
-                title="Painel da Portaria"
-                subtitle="Em desenvolvimento"
-                icon="fa-door-open"
-              />
-            }
-          />
+          {/* Porteiro (e administração) */}
+          <Route element={<ProtectedRoute roles={[ROLES.PORTEIRO, ROLES.ADMIN]} />}>
+            <Route
+              path="/portaria"
+              element={<Placeholder title="Painel da Portaria" subtitle="Em desenvolvimento" icon="fa-door-open" />}
+            />
+          </Route>
 
-          <Route
-            path="/convidado"
-            element={
-              <Placeholder
-                title="Painel do Convidado"
-                subtitle="Em desenvolvimento"
-                icon="fa-qrcode"
-              />
-            }
-          />
+          {/* Administração */}
+          <Route element={<ProtectedRoute roles={[ROLES.ADMIN]} />}>
+            <Route
+              path="/admin"
+              element={
+                <Placeholder title="Painel do Morador / Admin" subtitle="Em desenvolvimento" icon="fa-user-shield" />
+              }
+            />
+          </Route>
 
-          {/* Rota coringa: qualquer URL não mapeada */}
+          {/* Rota antiga: redireciona para o dashboard */}
+          <Route path="/convidado" element={<Navigate to="/dashboard" replace />} />
+
           <Route path="*" element={<NotFound />} />
         </Routes>
       </div>
