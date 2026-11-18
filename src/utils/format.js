@@ -35,7 +35,8 @@ export const fmtRemaining = (ms) => {
 
 // 12345678901 -> ***.456.789-**
 export const maskCpf = (cpf) => {
-  const d = cpf.replace(/\D/g, '');
+  const d = String(cpf ?? '').replace(/\D/g, '');
+  if (d.length !== 11) return '—';
   return `***.${d.slice(3, 6)}.${d.slice(6, 9)}-**`;
 };
 

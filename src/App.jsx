@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, Link, useNavigate } from 'react
 
 import Login from './pages/Login';
 import UserDashboard from './pages/UserDashboard';
+import Portaria from './pages/Portaria';
 import ProtectedRoute from './components/ProtectedRoute';
 import { ROLES, clearSession, getSession } from './auth';
 
@@ -81,7 +82,7 @@ export default function App() {
           <Route element={<ProtectedRoute roles={[ROLES.PORTEIRO, ROLES.ADMIN]} />}>
             <Route
               path="/portaria"
-              element={<Placeholder title="Painel da Portaria" subtitle="Em desenvolvimento" icon="fa-door-open" />}
+              element={<Portaria />}
             />
           </Route>
 
