@@ -6,6 +6,7 @@ import SearchInput from '../ui/SearchInput';
 import Pagination, { paginate } from '../ui/Pagination';
 import { EmptyState, ErrorState, TableSkeleton } from '../ui/States';
 import StatCard from './StatCard';
+import QrScannerPanel from './QrScannerPanel';
 import useNow from '../../hooks/useNow';
 import useResource from '../../hooks/useResource';
 import { getResumo, listAcessos } from '../../services/portariaService';
@@ -38,7 +39,7 @@ function PersonType({ type }) {
 }
 
 /** Aba 1: indicadores e histórico global de acessos (atualiza sozinho a cada 15 s). */
-export default function OverviewTab() {
+export default function OverviewTab({ scanRequest = 0 }) {
   const now = useNow(60000);
   const summary = useResource(getResumo, 'summary', { refreshMs: REFRESH_MS });
   const logs = useResource(listAcessos, 'logs', { refreshMs: REFRESH_MS });
@@ -92,6 +93,12 @@ export default function OverviewTab() {
     setRefreshing(false);
   };
 
+  // Cada leitura atualiza o registro e os indicadores sem esperar o polling de 15 s
+  const handleValidated = () => {
+    summary.refresh();
+    logs.refresh();
+  };
+
   const clearFilters = () => {
     setQuery('');
     setStatusFilter('todos');
@@ -107,12 +114,16 @@ export default function OverviewTab() {
         description="Indicadores do condomínio e registro de entradas e saídas em tempo real."
       />
 
-      {/* Indicadores */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard icon="fa-door-open" label="Acessos hoje" value={stats?.acessosHoje} hint="Entradas permitidas desde 00:00" />
-        <StatCard icon="fa-person-walking-arrow-right" label="Visitantes agora" value={stats?.visitantesAgora} hint="Dentro do condomínio" />
-        <StatCard icon="fa-users" label="Moradores cadastrados" value={stats?.moradores} />
-        <StatCard icon="fa-headset" label="Chamados abertos" value={stats?.chamadosAbertos} hint="Aguardando a portaria" />
+      {/* Leitor de QR Code + indicadores */}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
+        <QrScannerPanel scanRequest={scanRequest} onValidated={handleValidated} />
+
+        <div className="grid content-start gap-4 sm:grid-cols-2">
+          <StatCard icon="fa-door-open" label="Acessos hoje" value={stats?.acessosHoje} hint="Entradas permitidas desde 00:00" />
+          <StatCard icon="fa-person-walking-arrow-right" label="Visitantes agora" value={stats?.visitantesAgora} hint="Dentro do condomínio" />
+          <StatCard icon="fa-users" label="Moradores cadastrados" value={stats?.moradores} />
+          <StatCard icon="fa-headset" label="Chamados abertos" value={stats?.chamadosAbertos} hint="Aguardando a portaria" />
+        </div>
       </div>
 
       {/* Histórico global */}

@@ -32,6 +32,7 @@ export default function Portaria() {
 
   const [activeView, setActiveView] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [scanRequest, setScanRequest] = useState(0);
   const [toast, showToast] = useToast(3500);
 
   useBodyScrollLock(sidebarOpen);
@@ -54,10 +55,10 @@ export default function Portaria() {
     navigate('/', { replace: true });
   };
 
+  // O leitor mora na Visão Geral: leva até lá e pede para retomar a câmera
   const handleScan = () => {
-    // TODO (próximo passo): abrir o modal da câmera / leitor de QR Code
-    // e validar o código lido via API (POST /api/acessos/validar).
-    showToast('O leitor de QR Code será habilitado no próximo passo.');
+    setActiveView('overview');
+    setScanRequest((n) => n + 1);
   };
 
   const View = VIEWS[activeView];
@@ -79,7 +80,7 @@ export default function Portaria() {
         <PortariaHeader onOpenMenu={() => setSidebarOpen(true)} onScan={handleScan} />
 
         <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
-          <View key={activeView} onToast={showToast} />
+          <View key={activeView} onToast={showToast} scanRequest={scanRequest} />
 
           <p className="mt-12 text-center text-xs text-slate-600">
             MainPass © {new Date().getFullYear()} — Controle de Acesso

@@ -5,8 +5,11 @@
 /*  A autorização real (RBAC) precisa ser aplicada pela API em cada endpoint. */
 /* -------------------------------------------------------------------------- */
 
+import { API_URL, USE_LOCAL } from './services/env';
+
 export const ROLES = {
   USER: 'ROLE_USER',
+  CONVIDADO: 'ROLE_CONVIDADO',
   PORTEIRO: 'ROLE_PORTEIRO',
   ADMIN: 'ROLE_ADMIN',
 };
@@ -14,6 +17,7 @@ export const ROLES = {
 // Rota inicial de cada perfil após o login
 export const ROLE_HOME = {
   [ROLES.USER]: '/dashboard',
+  [ROLES.CONVIDADO]: '/convidado',
   [ROLES.PORTEIRO]: '/portaria',
   [ROLES.ADMIN]: '/admin',
 };
@@ -67,20 +71,28 @@ export const decodeJwt = (token) => {
 /* -------------------------------------------------------------------------- */
 /*  Roles                                                                     */
 /* -------------------------------------------------------------------------- */
+// Perfis do back-end (enum Perfil) -> roles do front-end
+const PERFIL_ALIASES = {
+  OPERADOR: 'PORTEIRO',
+  MORADOR: 'USER',
+  USUARIO: 'USER',
+};
+
 const normalizeRole = (value) => {
   const raw = value && typeof value === 'object' ? value.authority : value;
   if (typeof raw !== 'string') return null;
-  const upper = raw.trim().toUpperCase();
-  const role = upper.startsWith('ROLE_') ? upper : `ROLE_${upper}`;
+  const bare = raw.trim().toUpperCase().replace(/^ROLE_/, '');
+  const role = `ROLE_${PERFIL_ALIASES[bare] ?? bare}`;
   return Object.values(ROLES).includes(role) ? role : null;
 };
 
-const ROLE_PRIORITY = [ROLES.ADMIN, ROLES.PORTEIRO, ROLES.USER];
+const ROLE_PRIORITY = [ROLES.ADMIN, ROLES.PORTEIRO, ROLES.USER, ROLES.CONVIDADO];
 
 // Aceita { role }, { roles: [...] } ou { authorities: [...] } (resposta da API ou claims do JWT)
 export const extractRole = (source) => {
   if (!source) return null;
   const list = [
+    source.perfil, // claim do JwtService do Spring Boot
     source.role,
     ...(Array.isArray(source.roles) ? source.roles : [source.roles]),
     ...(Array.isArray(source.authorities) ? source.authorities : [source.authorities]),
@@ -148,6 +160,7 @@ export const getSession = () => {
 /*   ROLE_PORTEIRO  porteiro@mainpass.com  | CPF 111.444.777-35 | Porteiro@123 */
 /*   ROLE_ADMIN     admin@mainpass.com     | CPF 529.982.247-25 | Admin@1234   */
 /*   ROLE_USER      carlos.lima@email.com  | CPF 390.533.447-05 | Convidado@123*/
+/*   ROLE_CONVIDADO fernanda@email.com     | CPF 168.995.350-09 | Convidado@123*/
 /* -------------------------------------------------------------------------- */
 const MOCK_USERS = [
   {
@@ -171,24 +184,17 @@ const MOCK_USERS = [
     role: ROLES.USER,
     name: 'Carlos Eduardo Lima',
   },
+  {
+    email: 'fernanda@email.com',
+    cpf: '16899535009',
+    password: 'Convidado@123',
+    role: ROLES.CONVIDADO,
+    name: 'Fernanda Prado',
+  },
 ];
 
-/**
- * Autentica com e-mail ou CPF (já normalizado: e-mail em minúsculas ou só dígitos).
- * Retorna { token, role, user } ou lança AuthError.
- *
- * TODO: trocar a simulação pela chamada real ao Spring Boot:
- *
- *   const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/login`, {
- *     method: 'POST',
- *     headers: { 'Content-Type': 'application/json' },
- *     body: JSON.stringify({ login, password }),
- *   });
- *   if (res.status === 401) throw new AuthError('INVALID_CREDENTIALS');
- *   if (!res.ok) throw new AuthError('SERVER_ERROR');
- *   return res.json(); // { token, role?, user? }
- */
-export const authenticate = async (login, password) => {
+// Modo local (sem VITE_API_URL): usuários de teste acima.
+const authenticateMock = async (login, password) => {
   await new Promise((resolve) => setTimeout(resolve, 900));
 
   // Atenção: comparar senha em texto puro é aceitável só nesta simulação.
@@ -213,3 +219,57 @@ export const authenticate = async (login, password) => {
     user: { name: found.name, email: found.email },
   };
 };
+
+/* -------------------------------------------------------------------------- */
+/*  Login real (Spring Boot)                                                  */
+/*                                                                            */
+/*  POST /api/auth/login  ->  { token, tipo, expiraEmSegundos }               */
+/*  A role e o usuário vêm das claims do JWT: sub (e-mail), perfil e,         */
+/*  opcionalmente, nome. Usa fetch direto (e não request()) porque um 401     */
+/*  aqui significa "credenciais inválidas", não "sessão expirada".            */
+/* -------------------------------------------------------------------------- */
+
+// Corpo esperado pelo LoginRequest do back-end. Ajuste aqui se os nomes forem outros.
+const buildLoginPayload = (login, password) => ({ email: login, senha: password });
+
+const nameFromEmail = (email) =>
+  String(email || '')
+    .split('@')[0]
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+
+const authenticateApi = async (login, password) => {
+  let res;
+  try {
+    res = await fetch(`${API_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(buildLoginPayload(login, password)),
+    });
+  } catch (err) {
+    throw new AuthError('SERVER_ERROR', 'Não foi possível conectar à API.');
+  }
+
+  if (res.status === 401 || res.status === 403) throw new AuthError('INVALID_CREDENTIALS');
+  if (!res.ok) throw new AuthError('SERVER_ERROR', `Falha no login (HTTP ${res.status}).`);
+
+  const data = await res.json().catch(() => null);
+  if (!data?.token) throw new AuthError('SERVER_ERROR', 'Resposta de login inválida.');
+
+  const claims = decodeJwt(data.token);
+  const email = claims?.sub ?? login;
+  return {
+    token: data.token,
+    role: extractRole(claims), // null => a tela de login avisa "perfil não reconhecido"
+    user: { name: claims?.nome ?? claims?.name ?? nameFromEmail(email), email },
+  };
+};
+
+/**
+ * Autentica com e-mail ou CPF (já normalizado: e-mail em minúsculas ou só dígitos).
+ * Retorna { token, role, user } ou lança AuthError('INVALID_CREDENTIALS' | 'SERVER_ERROR').
+ */
+export const authenticate = (login, password) =>
+  USE_LOCAL ? authenticateMock(login, password) : authenticateApi(login, password);

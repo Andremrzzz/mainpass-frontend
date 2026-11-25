@@ -15,6 +15,7 @@ export const ROLE_LABELS = {
   ROLE_PORTEIRO: 'Porteiro',
   ROLE_ADMIN: 'Administrador / Síndico',
   ROLE_USER: 'Morador',
+  ROLE_CONVIDADO: 'Convidado',
 };
 
 // `tone` é interpretado pelo componente Badge

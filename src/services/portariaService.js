@@ -56,6 +56,9 @@ import * as local from './local/portariaLocal';
 
 const driver = USE_LOCAL ? local : http;
 
+/** Recursos que o driver ativo suporta (as telas escondem o que não existe). */
+export const capabilities = driver.capabilities;
+
 export const checkHealth = (...args) => driver.checkHealth(...args);
 
 export const getResumo = (...args) => driver.getResumo(...args);

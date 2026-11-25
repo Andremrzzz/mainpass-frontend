@@ -90,6 +90,8 @@ const generateCode = (db) => {
 
 const normalizeCode = (code) => String(code ?? '').trim().toUpperCase();
 
+export const capabilities = { criarConvite: true };
+
 /* --------------------------------- Saúde ---------------------------------- */
 export const checkHealth = async () => ({ status: 'UP', storage: 'localStorage' });
 

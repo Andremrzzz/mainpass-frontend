@@ -1,36 +1,275 @@
-import { request } from './api';
+import { ApiError, request } from './api';
+import { AMBIENTE_ID, PERFIL_MORADOR } from './env';
+import { startOfToday } from '../utils/dates';
 
 /* -------------------------------------------------------------------------- */
-/*  Implementação HTTP (Spring Boot) do serviço da portaria.                  */
+/*  Driver HTTP: adapta a API Spring Boot (br.mainpass.acesso) ao contrato    */
+/*  que as telas esperam. É a "camada anticorrupção": o vocabulário da API    */
+/*  (Usuario, QrCode, RegistroAcesso) é traduzido aqui para o da interface    */
+/*  (morador, convite, acesso). As telas não conhecem os nomes do back-end.   */
 /*                                                                            */
-/*  Mesma interface de local/portariaLocal.js. Ajuste os caminhos/formatos    */
-/*  aqui quando criar os controllers; as telas não precisam mudar.            */
-/*  Contrato completo documentado em portariaService.js.                      */
+/*  Diferenças tratadas neste arquivo:                                        */
+/*   - datas ISO (Instant) -> milissegundos; enums MAIÚSCULOS -> minúsculos;  */
+/*   - listagens paginadas (Page) -> arrays;                                  */
+/*   - Usuario.ativo (boolean) <-> status 'ativo' | 'bloqueado'.              */
+/*                                                                            */
+/*  CONTRATO ASSUMIDO (confira com os DTOs reais; os trechos marcados com     */
+/*  "CONFIRMAR" foram escritos sem ver o código do back-end):                 */
+/*   - RegistroAcessoResponse / ValidarAcessoResponse: campos lidos com       */
+/*     alternativas em pick(...); ajuste as chaves se forem outras.           */
+/*   - /api/usuarios (UsuarioController): lista/CRUD de moradores.            */
+/*   - GET /api/qrcodes?status=ATIVO: endpoint a criar (ADMIN/OPERADOR).      */
 /* -------------------------------------------------------------------------- */
 
-export const checkHealth = () => request('/api/health', { timeoutMs: 5000 });
+const PAGE_ALL = 1000; // enquanto as telas filtram no navegador (Pageable máx. padrão: 2000)
 
-export const getResumo = () => request('/api/portaria/resumo');
+/** O que este driver suporta; as telas escondem o que não existe. */
+export const capabilities = {
+  // O back-end gera QR Codes só para o usuário logado (POST /api/qrcodes { ambienteId }),
+  // sem convidado/validade informados pela portaria.
+  criarConvite: false,
+};
 
-export const listAcessos = () => request('/api/acessos');
+/* ------------------------------- Utilitários ------------------------------- */
 
-export const validarConvite = ({ code, direction = 'entrada' }) =>
-  request('/api/acessos/validar', { method: 'POST', body: { code, direction } });
+// Primeiro valor presente entre várias chaves possíveis
+const pick = (obj, ...keys) => {
+  for (const key of keys) {
+    const value = obj?.[key];
+    if (value !== undefined && value !== null) return value;
+  }
+  return undefined;
+};
 
-export const listMoradores = () => request('/api/moradores');
+const toMs = (value) => {
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'number') return value;
+  const t = Date.parse(value);
+  return Number.isNaN(t) ? null : t;
+};
 
-export const getMorador = (id) => request(`/api/moradores/${id}`);
+const digits = (value) => String(value ?? '').replace(/\D/g, '');
 
-export const createMorador = (data) => request('/api/moradores', { method: 'POST', body: data });
+// "000.000.000-00" (a coluna Usuario.cpf tem 14 posições)
+const formatCpf = (value) => {
+  const d = digits(value);
+  return d.length === 11 ? `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}` : d;
+};
 
-export const updateMorador = (id, data) => request(`/api/moradores/${id}`, { method: 'PUT', body: data });
+const unwrapList = (payload) => (Array.isArray(payload) ? payload : payload?.content ?? []);
 
-export const listConvitesAtivos = () => request('/api/convites?status=ativo');
+// MOTIVO_EXPIRADO -> "Motivo expirado"
+const humanize = (value) => {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  const lower = text.replace(/_/g, ' ').toLowerCase();
+  return lower.charAt(0).toUpperCase() + lower.slice(1);
+};
 
-export const createConvite = (data) => request('/api/convites', { method: 'POST', body: data });
+const unitOf = (source) => {
+  const bloco = pick(source, 'bloco');
+  const unidade = pick(source, 'unidade');
+  return unidade && bloco ? `${unidade} · Bloco ${bloco}` : null;
+};
 
-export const listChamados = () => request('/api/chamados');
+const ambienteName = (source) => {
+  const a = source?.ambiente;
+  return pick(source, 'ambienteNome') ?? (typeof a === 'object' ? a?.nome : a);
+};
 
-export const createChamado = (data) => request('/api/chamados', { method: 'POST', body: data });
+/* --------------------------------- Saúde ---------------------------------- */
+// Spring Boot Actuator (já liberado no SecurityConfig)
+export const checkHealth = () => request('/actuator/health', { timeoutMs: 5000 });
 
-export const resolverChamado = (id) => request(`/api/chamados/${id}/resolver`, { method: 'PUT' });
+/* --------------------------------- Acessos -------------------------------- */
+const toAccessStatus = (resultado, motivo) => {
+  const r = String(resultado ?? '').toUpperCase();
+  const m = String(motivo ?? '').toUpperCase();
+  if (['PERMITIDO', 'AUTORIZADO', 'LIBERADO', 'SUCESSO'].includes(r)) return 'permitido';
+  return m.includes('EXPIR') ? 'expirado' : 'negado';
+};
+
+// RegistroAcessoResponse -> linha do histórico (CONFIRMAR nomes dos campos)
+const toAcesso = (r) => {
+  const usuario = r.usuario ?? {};
+  const personName = pick(r, 'usuarioNome', 'nomeUsuario', 'nome') ?? usuario.nome ?? 'Não identificado';
+  const motivo = pick(r, 'motivo', 'motivoRecusa');
+  const direction = String(pick(r, 'tipo', 'direcao', 'direction') ?? '').toLowerCase();
+
+  return {
+    id: r.id,
+    timestamp: toMs(pick(r, 'dataHora', 'criadoEm')) ?? 0,
+    personName,
+    personType: 'morador',
+    document: digits(pick(r, 'usuarioCpf', 'cpf') ?? usuario.cpf),
+    unit: unitOf(r) ?? unitOf(usuario) ?? ambienteName(r) ?? '—',
+    host: personName,
+    direction: direction === 'saida' || direction === 'saída' ? 'saida' : 'entrada',
+    status: toAccessStatus(pick(r, 'resultado', 'status'), motivo),
+    reason: humanize(motivo),
+  };
+};
+
+export const listAcessos = async () => {
+  const page = await request(`/api/acessos?size=${PAGE_ALL}&sort=dataHora,desc`);
+  return unwrapList(page).map(toAcesso);
+};
+
+// ValidarAcessoResponse -> { allowed, status, reason, log } (CONFIRMAR nomes dos campos)
+const toValidacao = (r) => {
+  const motivo = pick(r, 'motivo', 'motivoRecusa');
+  const status = toAccessStatus(pick(r, 'resultado', 'status'), motivo);
+  const allowed = pick(r, 'permitido', 'autorizado', 'allowed') ?? status === 'permitido';
+  return {
+    allowed: Boolean(allowed),
+    status,
+    reason: humanize(motivo) || pick(r, 'mensagem', 'message') || '',
+    log: toAcesso(r.registro ?? r),
+  };
+};
+
+// Erros de negócio em que o back-end recusa o QR com 4xx viram "acesso negado" (não falha de sistema)
+const DENIAL_STATUS = [400, 404, 409, 410, 422];
+
+/** O back-end não recebe sentido (entrada/saída): valida token + ambiente da portaria. */
+export const validarConvite = async ({ code }) => {
+  if (!AMBIENTE_ID) {
+    throw new ApiError(400, 'Ambiente da portaria não configurado. Defina VITE_AMBIENTE_ID no .env.');
+  }
+  try {
+    const response = await request('/api/acessos/validar', {
+      method: 'POST',
+      body: { token: String(code ?? '').trim(), ambienteId: AMBIENTE_ID },
+    });
+    return toValidacao(response);
+  } catch (err) {
+    if (err instanceof ApiError && DENIAL_STATUS.includes(err.status)) {
+      return { allowed: false, status: 'negado', reason: err.message, log: null };
+    }
+    throw err;
+  }
+};
+
+/* -------------------------------- Moradores ------------------------------- */
+// CONFIRMAR: rota e DTOs do UsuarioController
+const USERS = '/api/usuarios';
+
+const toMorador = (u) => ({
+  id: u.id,
+  nome: u.nome,
+  cpf: digits(u.cpf),
+  email: u.email,
+  telefone: digits(u.telefone),
+  bloco: u.bloco ?? '',
+  unidade: u.unidade ?? '',
+  status: u.ativo === false ? 'bloqueado' : 'ativo',
+});
+
+// Se a API informar o perfil, só entram os moradores (não operadores/admins)
+const isMorador = (u) => !u.perfil || String(u.perfil).toUpperCase() === PERFIL_MORADOR;
+
+// OBS.: Usuario.senhaHash é obrigatório. O back-end precisa gerar uma senha provisória
+// (ou fluxo de primeiro acesso) ao receber o cadastro sem `senha`.
+const toUserPayload = (m) => ({
+  nome: m.nome,
+  cpf: formatCpf(m.cpf),
+  email: m.email,
+  telefone: digits(m.telefone),
+  bloco: m.bloco,
+  unidade: m.unidade,
+  perfil: PERFIL_MORADOR,
+  ativo: m.status !== 'bloqueado',
+});
+
+export const listMoradores = async () => {
+  const page = await request(`${USERS}?size=${PAGE_ALL}&sort=nome,asc`);
+  return unwrapList(page).filter(isMorador).map(toMorador);
+};
+
+/** O back-end não tem "convidados da unidade": a lista vem vazia. */
+export const getMorador = async (id) => ({ ...toMorador(await request(`${USERS}/${id}`)), convidados: [] });
+
+export const createMorador = async (data) =>
+  toMorador(await request(USERS, { method: 'POST', body: toUserPayload(data) }));
+
+export const updateMorador = async (id, data) =>
+  toMorador(await request(`${USERS}/${id}`, { method: 'PUT', body: toUserPayload(data) }));
+
+/* --------------------------------- Convites ------------------------------- */
+// QrCode do back-end = credencial de um usuário para um ambiente.
+// ENDPOINT A CRIAR (ADMIN/OPERADOR): GET /api/qrcodes?status=ATIVO -> Page de
+//   { id, ambienteId, ambienteNome, status, criadoEm, expiraEm,
+//     usuarioId, usuarioNome, usuarioCpf, usuarioBloco, usuarioUnidade }
+// O token nunca é devolvido depois da geração, então `code` é nulo.
+const toConvite = (q) => {
+  const nome = pick(q, 'usuarioNome', 'nomeUsuario') ?? q.usuario?.nome ?? '—';
+  const unit =
+    unitOf({ bloco: pick(q, 'usuarioBloco'), unidade: pick(q, 'usuarioUnidade') }) ??
+    unitOf(q.usuario ?? {}) ??
+    ambienteName(q) ??
+    '—';
+  return {
+    id: q.id,
+    code: null,
+    guestName: nome,
+    guestCpf: digits(pick(q, 'usuarioCpf') ?? q.usuario?.cpf),
+    unit,
+    host: nome,
+    validFrom: toMs(pick(q, 'criadoEm', 'emitidoEm')) ?? 0,
+    validUntil: toMs(q.expiraEm) ?? 0,
+  };
+};
+
+export const listConvitesAtivos = async () => {
+  const page = await request(`/api/qrcodes?status=ATIVO&size=${PAGE_ALL}&sort=expiraEm,asc`);
+  return unwrapList(page).map(toConvite);
+};
+
+export const createConvite = async () => {
+  throw new ApiError(
+    501,
+    'O back-end ainda não gera convites para convidados (POST /api/qrcodes cria o QR do usuário logado).'
+  );
+};
+
+/* --------------------------------- Chamados ------------------------------- */
+// Pacote br.mainpass.acesso.chamado
+const toChamado = (c) => ({
+  id: c.id,
+  morador: c.solicitanteNome ?? '—',
+  unidade: unitOf({ bloco: c.solicitanteBloco, unidade: c.solicitanteUnidade }) ?? '—',
+  assunto: c.assunto,
+  mensagem: c.mensagem,
+  criadoEm: toMs(c.criadoEm) ?? 0,
+  status: String(c.status).toUpperCase() === 'RESOLVIDO' ? 'resolvido' : 'aberto',
+});
+
+export const listChamados = async () => {
+  const page = await request(`/api/chamados?size=${PAGE_ALL}&sort=criadoEm,desc`);
+  return unwrapList(page).map(toChamado);
+};
+
+/** O solicitante é o usuário do token: `residentId` não é enviado. */
+export const createChamado = async ({ assunto, mensagem }) =>
+  toChamado(await request('/api/chamados', { method: 'POST', body: { assunto, mensagem } }));
+
+export const resolverChamado = async (id) =>
+  toChamado(await request(`/api/chamados/${id}/resolver`, { method: 'PUT' }));
+
+/* --------------------------------- Resumo --------------------------------- */
+// Sem endpoint dedicado: usa totalElements das páginas (size=1) e deixa "—" no que não dá para calcular.
+const totalOf = (path) =>
+  request(path)
+    .then((page) => (Array.isArray(page) ? page.length : page?.totalElements ?? null))
+    .catch(() => null);
+
+export const getResumo = async () => {
+  const hoje = encodeURIComponent(new Date(startOfToday()).toISOString());
+  const [acessosHoje, moradores, chamadosAbertos] = await Promise.all([
+    totalOf(`/api/acessos?resultado=PERMITIDO&de=${hoje}&size=1`),
+    listMoradores().then((list) => list.length).catch(() => null),
+    totalOf('/api/chamados?status=ABERTO&size=1'),
+  ]);
+  // visitantesAgora exige saber o sentido (entrada/saída) de cada registro: indisponível por enquanto
+  return { acessosHoje, visitantesAgora: null, moradores, chamadosAbertos };
+};

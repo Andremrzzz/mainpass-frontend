@@ -1,4 +1,7 @@
 import { clearSession, getSession } from '../auth';
+import { API_URL, USE_LOCAL } from './env';
+
+export { API_URL, USE_LOCAL };
 
 /* -------------------------------------------------------------------------- */
 /*  Cliente HTTP do MainPass (Spring Boot)                                    */
@@ -8,9 +11,6 @@ import { clearSession, getSession } from '../auth';
 /*  Sem essa variável o sistema usa o armazenamento LOCAL do navegador         */
 /*  (localStorage, ver services/local/), sem precisar de back-end.            */
 /* -------------------------------------------------------------------------- */
-
-export const API_URL = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
-export const USE_LOCAL = API_URL === '';
 
 export class ApiError extends Error {
   /**
@@ -37,6 +37,27 @@ const messageFor = (status) =>
   (status >= 500
     ? 'Erro interno no servidor. Tente novamente em instantes.'
     : 'Não foi possível concluir a operação.');
+
+// Erros por campo: aceita { campo: msg } ou [{ campo, mensagem }]
+const toFieldErrors = (raw) => {
+  if (!raw) return null;
+  if (Array.isArray(raw)) {
+    const out = {};
+    raw.forEach((e) => {
+      const field = e?.campo ?? e?.field;
+      const msg = e?.mensagem ?? e?.message;
+      if (field && msg && !out[field]) out[field] = msg;
+    });
+    return Object.keys(out).length ? out : null;
+  }
+  return typeof raw === 'object' ? raw : null;
+};
+
+// Corpo de erro da API: { status, codigo, mensagem } (ou { message, errors })
+const parseError = (payload) => ({
+  message: payload?.mensagem ?? payload?.message ?? null,
+  fieldErrors: toFieldErrors(payload?.erros ?? payload?.errors ?? payload?.campos ?? payload?.detalhes),
+});
 
 /**
  * Requisição JSON autenticada com o JWT da sessão.
@@ -79,7 +100,8 @@ export async function request(path, { method = 'GET', body, timeoutMs = 15000 } 
   const payload = res.status === 204 ? null : await res.json().catch(() => null);
 
   if (!res.ok) {
-    throw new ApiError(res.status, payload?.message || messageFor(res.status), payload?.errors ?? null);
+    const { message, fieldErrors } = parseError(payload);
+    throw new ApiError(res.status, message || messageFor(res.status), fieldErrors);
   }
   return payload;
 }

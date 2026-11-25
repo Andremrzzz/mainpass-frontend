@@ -6,7 +6,7 @@ import { EmptyState, ErrorState, TableSkeleton } from '../ui/States';
 import InviteFormModal from './InviteFormModal';
 import useNow from '../../hooks/useNow';
 import useResource from '../../hooks/useResource';
-import { listConvitesAtivos } from '../../services/portariaService';
+import { capabilities, listConvitesAtivos } from '../../services/portariaService';
 import { PAGE_SIZE } from '../../constants/portaria';
 import { btnIcon, btnPrimary } from '../../constants/ui';
 import { fmtDateTime } from '../../utils/dates';
@@ -67,10 +67,12 @@ export default function InvitesTab({ onToast }) {
         title="Convites ativos"
         description="QR Codes ainda válidos no condomínio, ordenados pelo vencimento mais próximo."
         action={
-          <button type="button" onClick={() => setCreating(true)} className={btnPrimary}>
-            <i className="fas fa-plus text-xs"></i>
-            Novo convite
-          </button>
+          capabilities.criarConvite ? (
+            <button type="button" onClick={() => setCreating(true)} className={btnPrimary}>
+              <i className="fas fa-plus text-xs"></i>
+              Novo convite
+            </button>
+          ) : null
         }
       />
 
@@ -127,10 +129,14 @@ export default function InvitesTab({ onToast }) {
                           <p className="mt-0.5 text-xs text-slate-500">{fmtRemaining(i.validUntil - now)}</p>
                         </td>
                         <td className="px-6 py-4">
-                          <span className="inline-flex items-center gap-1">
-                            <span className="font-mono text-sm text-slate-300">{i.code}</span>
-                            <CopyButton code={i.code} />
-                          </span>
+                          {i.code ? (
+                            <span className="inline-flex items-center gap-1">
+                              <span className="font-mono text-sm text-slate-300">{i.code}</span>
+                              <CopyButton code={i.code} />
+                            </span>
+                          ) : (
+                            <span className="text-sm text-slate-500">—</span>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -162,10 +168,12 @@ export default function InvitesTab({ onToast }) {
                       <dd className="mt-0.5 text-slate-300">{i.host}</dd>
                     </div>
                   </dl>
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-sm text-slate-300">{i.code}</span>
-                    <CopyButton code={i.code} />
-                  </div>
+                  {i.code && (
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-sm text-slate-300">{i.code}</span>
+                      <CopyButton code={i.code} />
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

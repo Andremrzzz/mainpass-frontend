@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate, Link, useNavigate } from 'react
 import Login from './pages/Login';
 import UserDashboard from './pages/UserDashboard';
 import Portaria from './pages/Portaria';
+import Convidado from './pages/Convidado';
 import ProtectedRoute from './components/ProtectedRoute';
 import { ROLES, clearSession, getSession } from './auth';
 
@@ -96,8 +97,10 @@ export default function App() {
             />
           </Route>
 
-          {/* Rota antiga: redireciona para o dashboard */}
-          <Route path="/convidado" element={<Navigate to="/dashboard" replace />} />
+          {/* Convidado */}
+          <Route element={<ProtectedRoute roles={[ROLES.CONVIDADO]} />}>
+            <Route path="/convidado" element={<Convidado />} />
+          </Route>
 
           <Route path="*" element={<NotFound />} />
         </Routes>
