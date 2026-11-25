@@ -165,9 +165,6 @@ const toMorador = (u) => ({
   status: u.ativo === false ? 'bloqueado' : 'ativo',
 });
 
-// Se a API informar o perfil, só entram os moradores (não operadores/admins)
-const isMorador = (u) => !u.perfil || String(u.perfil).toUpperCase() === PERFIL_MORADOR;
-
 // OBS.: Usuario.senhaHash é obrigatório. O back-end precisa gerar uma senha provisória
 // (ou fluxo de primeiro acesso) ao receber o cadastro sem `senha`.
 const toUserPayload = (m) => ({
@@ -181,13 +178,51 @@ const toUserPayload = (m) => ({
   ativo: m.status !== 'bloqueado',
 });
 
-export const listMoradores = async () => {
-  const page = await request(`${USERS}?size=${PAGE_ALL}&sort=nome,asc`);
-  return unwrapList(page).filter(isMorador).map(toMorador);
+// Consulta da portaria (somente leitura): GET /api/portaria/moradores[?q=&page=&size=] e /{id}
+const PORTARIA_MORADORES = '/api/portaria/moradores';
+const PORTARIA_PAGE_SIZE = 100; // máximo aceito pelo back-end
+const PORTARIA_MAX_PAGES = 20;
+
+/** Status do convite (back-end) -> status do convidado exibido na tela. */
+const toGuestStatus = (c) => {
+  const status = String(c.status ?? '').toUpperCase();
+  if (status === 'ATIVO') {
+    // Defensivo: o back já devolve EXPIRADO, mas não dependemos disso.
+    if (c.dataFim && toMs(c.dataFim) < Date.now()) return 'expirado';
+    return toMs(c.dataInicio) > Date.now() ? 'agendado' : 'valido';
+  }
+  if (status === 'UTILIZADO') return 'utilizado';
+  if (status === 'CANCELADO') return 'cancelado';
+  return 'expirado';
 };
 
-/** O back-end não tem "convidados da unidade": a lista vem vazia. */
-export const getMorador = async (id) => ({ ...toMorador(await request(`${USERS}/${id}`)), convidados: [] });
+const toConvidado = (c) => ({
+  id: c.conviteId,
+  nome: c.convidadoNome,
+  cpf: digits(c.convidadoCpf),
+  validade: toMs(c.dataFim),
+  status: toGuestStatus(c),
+  ambiente: c.ambienteNome ?? '',
+  usos: c.usos,
+  usosMax: c.usosMax,
+});
+
+/** Todos os moradores (percorre as páginas; a busca e os filtros são feitos na tela). */
+export const listMoradores = async () => {
+  const all = [];
+  for (let page = 0; page < PORTARIA_MAX_PAGES; page += 1) {
+    const res = await request(`${PORTARIA_MORADORES}?size=${PORTARIA_PAGE_SIZE}&page=${page}`);
+    all.push(...unwrapList(res).map(toMorador));
+    if (res.last !== false) break; // Page do Spring: `last` indica a última página
+  }
+  return all;
+};
+
+/** Morador + convidados (convites) numa única chamada. */
+export const getMorador = async (id) => {
+  const res = await request(`${PORTARIA_MORADORES}/${id}`);
+  return { ...toMorador(res.morador), convidados: (res.convidados ?? []).map(toConvidado) };
+};
 
 export const createMorador = async (data) =>
   toMorador(await request(USERS, { method: 'POST', body: toUserPayload(data) }));
@@ -267,7 +302,7 @@ export const getResumo = async () => {
   const hoje = encodeURIComponent(new Date(startOfToday()).toISOString());
   const [acessosHoje, moradores, chamadosAbertos] = await Promise.all([
     totalOf(`/api/acessos?resultado=PERMITIDO&de=${hoje}&size=1`),
-    listMoradores().then((list) => list.length).catch(() => null),
+    request(`${PORTARIA_MORADORES}?size=1`).then((p) => p.totalElements ?? null).catch(() => null),
     totalOf('/api/chamados?status=ABERTO&size=1'),
   ]);
   // visitantesAgora exige saber o sentido (entrada/saída) de cada registro: indisponível por enquanto

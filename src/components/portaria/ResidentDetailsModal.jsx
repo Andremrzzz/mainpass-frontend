@@ -130,7 +130,7 @@ export default function ResidentDetailsModal({ resident, onClose, onEdit, onUpda
 
         <section>
           <h3 className="text-xs font-medium uppercase tracking-wider text-slate-500">
-            Convidados vinculados à unidade
+            Convidados deste morador
           </h3>
 
           {detail.loading && !guests ? (
@@ -151,6 +151,8 @@ export default function ResidentDetailsModal({ resident, onClose, onEdit, onUpda
                     <p className="truncate text-sm text-slate-100">{g.nome}</p>
                     <p className="mt-0.5 text-xs text-slate-500">
                       <span className="font-mono">{maskCpf(g.cpf)}</span> · válido até {fmtDateTime(g.validade)}
+                      {g.ambiente ? ` · ${g.ambiente}` : ''}
+                      {g.usosMax ? ` · ${g.usos}/${g.usosMax} uso${g.usosMax === 1 ? '' : 's'}` : ''}
                     </p>
                   </div>
                   <Badge tone={GUEST_STATUS[g.status].tone}>{GUEST_STATUS[g.status].label}</Badge>
@@ -159,7 +161,7 @@ export default function ResidentDetailsModal({ resident, onClose, onEdit, onUpda
             </ul>
           ) : (
             <p className="mt-3 rounded-lg border border-dashed border-white/[0.12] px-4 py-6 text-center text-sm text-slate-500">
-              Nenhum convidado vinculado a esta unidade.
+              Este morador ainda não tem convidados.
             </p>
           )}
         </section>

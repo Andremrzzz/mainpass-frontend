@@ -39,6 +39,10 @@ export const GUEST_STATUS = {
   valido: { label: 'Válido', tone: 'success' },
   pendente: { label: 'Pendente', tone: 'warning' },
   expirado: { label: 'Expirado', tone: 'danger' },
+  // Convites reais (API): janela futura, usos esgotados e cancelado pelo morador
+  agendado: { label: 'Agendado', tone: 'info' },
+  utilizado: { label: 'Utilizado', tone: 'neutral' },
+  cancelado: { label: 'Cancelado', tone: 'danger' },
 };
 
 export const TICKET_STATUS = {
