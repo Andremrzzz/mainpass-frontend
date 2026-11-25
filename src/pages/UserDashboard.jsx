@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 
 import Header from '../components/dashboard/Header';
 import Sidebar from '../components/dashboard/Sidebar';
+import EntryHistory from '../components/dashboard/EntryHistory';
 import PassesSection from '../components/dashboard/PassesSection';
 import QrModal from '../components/dashboard/QrModal';
 import Toast from '../components/dashboard/Toast';
@@ -13,10 +14,10 @@ import useBodyScrollLock from '../hooks/useBodyScrollLock';
 import useNow from '../hooks/useNow';
 import useToast from '../hooks/useToast';
 
-import { AVAILABLE_MENUS } from '../constants/dashboard';
+import { AVAILABLE_MENUS, menuItemsFor } from '../constants/dashboard';
 import { MOCK_NOTIFICATIONS, MOCK_PASSES, MOCK_PROFILE } from '../data/mockData';
 import { getStatus } from '../utils/passes';
-import { clearSession } from '../auth';
+import { ROLES, clearSession, getSession } from '../auth';
 
 /**
  * Dashboard do usuário comum (convidado / morador).
@@ -25,11 +26,14 @@ import { clearSession } from '../auth';
  */
 export default function UserDashboard({ userName: initialName }) {
   const navigate = useNavigate();
+  const session = getSession();
+  const isPorteiro = session?.role === ROLES.PORTEIRO;
 
   // TODO: substituir os mocks por chamadas à API (GET /usuarios/me, /passes, /notificacoes)
   const [profile, setProfile] = useState({
     ...MOCK_PROFILE,
-    name: initialName || MOCK_PROFILE.name,
+    name: initialName || (isPorteiro && session?.user?.name) || MOCK_PROFILE.name,
+    ...(isPorteiro && session?.user?.email ? { email: session.user.email } : {}),
   });
   const [activeMenu, setActiveMenu] = useState('passes');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -38,8 +42,8 @@ export default function UserDashboard({ userName: initialName }) {
   const now = useNow(30000);
 
   const passes = useMemo(
-    () => MOCK_PASSES.map((p) => ({ ...p, status: getStatus(p, now) })),
-    [now]
+    () => (isPorteiro ? [] : MOCK_PASSES).map((p) => ({ ...p, status: getStatus(p, now) })),
+    [now, isPorteiro]
   );
   const selectedPass = passes.find((p) => p.id === selectedPassId) ?? null;
 
@@ -70,6 +74,7 @@ export default function UserDashboard({ userName: initialName }) {
       case 'historico':
         return <AccessHistory />;
       default:
+        if (isPorteiro) return <EntryHistory />;
         return (
           <PassesSection
             passes={passes}
@@ -86,11 +91,12 @@ export default function UserDashboard({ userName: initialName }) {
       <Sidebar
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        items={menuItemsFor(isPorteiro)}
         activeMenu={activeMenu}
         onSelect={handleMenuSelect}
         onLogout={handleLogout}
         userName={profile.name}
-        userRole={profile.role}
+        userRole={isPorteiro ? 'Porteiro' : profile.role}
       />
 
       <div className="lg:pl-64">
@@ -109,7 +115,7 @@ export default function UserDashboard({ userName: initialName }) {
         </main>
       </div>
 
-      {selectedPass && (
+      {!isPorteiro && selectedPass && (
         <QrModal
           pass={selectedPass}
           now={now}

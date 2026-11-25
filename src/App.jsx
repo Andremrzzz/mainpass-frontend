@@ -75,7 +75,7 @@ export default function App() {
           <Route path="/" element={<Login />} />
 
           {/* Convidado / morador */}
-          <Route element={<ProtectedRoute roles={[ROLES.USER]} />}>
+          <Route element={<ProtectedRoute roles={[ROLES.USER, ROLES.PORTEIRO]} />}>
             <Route path="/dashboard" element={<UserDashboard />} />
           </Route>
 

@@ -14,6 +14,16 @@ export const MENU_ITEMS = [
   { key: 'ajuda', label: 'Regras & Ajuda', icon: 'fa-circle-question' },
 ];
 
+// Menu do porteiro: o item "passes" vira "Histórico de Entradas" (mesma chave, outra tela)
+// e "Histórico de Acessos" (mock pessoal do morador) não se aplica.
+export const PORTEIRO_MENU_ITEMS = [
+  { key: 'passes', label: 'Histórico de Entradas', icon: 'fa-clock-rotate-left' },
+  { key: 'perfil', label: 'Dados do Perfil', icon: 'fa-user' },
+  { key: 'ajuda', label: 'Regras & Ajuda', icon: 'fa-circle-question' },
+];
+
+export const menuItemsFor = (isPorteiro) => (isPorteiro ? PORTEIRO_MENU_ITEMS : MENU_ITEMS);
+
 // Seções do menu que já possuem tela; as demais exibem aviso de "em breve"
 export const AVAILABLE_MENUS = ['passes', 'perfil', 'historico'];
 
