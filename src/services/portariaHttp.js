@@ -28,6 +28,8 @@ export const capabilities = {
   // O back-end gera QR Codes só para o usuário logado (POST /api/qrcodes { ambienteId }),
   // sem convidado/validade informados pela portaria.
   criarConvite: false,
+  // Fila de aprovação de convites (GET/POST /api/portaria/convites/...)
+  solicitacoes: true,
 };
 
 /* ------------------------------- Utilitários ------------------------------- */
@@ -59,9 +61,19 @@ const formatCpf = (value) => {
 const unwrapList = (payload) => (Array.isArray(payload) ? payload : payload?.content ?? []);
 
 // MOTIVO_EXPIRADO -> "Motivo expirado"
+const MOTIVOS = {
+  PENDENTE_APROVACAO: 'Convite aguardando aprovação da portaria',
+  RECUSADO: 'Convite recusado pela portaria',
+  CANCELADO: 'Convite cancelado',
+  JA_UTILIZADO: 'Convite já utilizado',
+  AINDA_NAO_VALIDO: 'Fora do horário permitido',
+  AMBIENTE_NAO_AUTORIZADO: 'Ambiente não autorizado para este convite',
+};
+
 const humanize = (value) => {
   const text = String(value ?? '').trim();
   if (!text) return '';
+  if (MOTIVOS[text.toUpperCase()]) return MOTIVOS[text.toUpperCase()];
   const lower = text.replace(/_/g, ' ').toLowerCase();
   return lower.charAt(0).toUpperCase() + lower.slice(1);
 };
@@ -191,6 +203,10 @@ const toGuestStatus = (c) => {
     if (c.dataFim && toMs(c.dataFim) < Date.now()) return 'expirado';
     return toMs(c.dataInicio) > Date.now() ? 'agendado' : 'valido';
   }
+  if (status === 'PENDENTE_APROVACAO') {
+    return c.dataFim && toMs(c.dataFim) < Date.now() ? 'expirado' : 'pendente';
+  }
+  if (status === 'RECUSADO') return 'recusado';
   if (status === 'UTILIZADO') return 'utilizado';
   if (status === 'CANCELADO') return 'cancelado';
   return 'expirado';
@@ -266,6 +282,42 @@ export const createConvite = async () => {
     'O back-end ainda não gera convites para convidados (POST /api/qrcodes cria o QR do usuário logado).'
   );
 };
+
+/* ------------------------- Fila de solicitações (aprovação) ---------------- */
+// Pacote br.mainpass.acesso.portaria (somente OPERADOR/ADMIN)
+//   GET  /api/portaria/convites/pendentes
+//   POST /api/portaria/convites/{id}/aprovar
+//   POST /api/portaria/convites/{id}/recusar   { motivo? }
+const PORTARIA_CONVITES = '/api/portaria/convites';
+
+const toSolicitacao = (s) => ({
+  id: s.conviteId,
+  status: String(s.status ?? '').toUpperCase() === 'PENDENTE_APROVACAO' ? 'pendente' : String(s.status ?? '').toLowerCase(),
+  guestName: s.convidado?.nome ?? '—',
+  guestCpf: digits(s.convidado?.cpf),
+  guestEmail: s.convidado?.email ?? '',
+  guestPhone: digits(s.convidado?.telefone),
+  host: s.morador?.nome ?? '—',
+  unit: unitOf({ bloco: s.morador?.bloco, unidade: s.morador?.unidade }) ?? '—',
+  ambiente: s.ambienteNome ?? '',
+  validFrom: toMs(s.dataInicio) ?? 0,
+  validUntil: toMs(s.dataFim) ?? 0,
+  usosMax: s.usosMax ?? 1,
+  observacao: s.observacao ?? '',
+  criadoEm: toMs(s.criadoEm) ?? 0,
+  motivoRecusa: s.motivoRecusa ?? '',
+});
+
+export const listSolicitacoes = async () => {
+  const list = await request(`${PORTARIA_CONVITES}/pendentes`);
+  return (Array.isArray(list) ? list : unwrapList(list)).map(toSolicitacao);
+};
+
+export const aprovarSolicitacao = async (id) =>
+  toSolicitacao(await request(`${PORTARIA_CONVITES}/${id}/aprovar`, { method: 'POST' }));
+
+export const recusarSolicitacao = async (id, motivo) =>
+  toSolicitacao(await request(`${PORTARIA_CONVITES}/${id}/recusar`, { method: 'POST', body: { motivo: motivo || null } }));
 
 /* --------------------------------- Chamados ------------------------------- */
 // Pacote br.mainpass.acesso.chamado

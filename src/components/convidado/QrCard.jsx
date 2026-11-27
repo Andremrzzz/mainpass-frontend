@@ -6,7 +6,7 @@ import { btnIcon, btnSecondary } from '../../constants/ui';
 import { fmtShort, fmtRemaining } from '../../utils/format';
 import { copyText, downloadQrCanvas, maskToken, qrProgress } from '../../utils/convidado';
 
-const PLACEHOLDER_ICON = { agendado: 'fa-hourglass-half', usado: 'fa-check', expirado: 'fa-clock', cancelado: 'fa-ban' };
+const PLACEHOLDER_ICON = { agendado: 'fa-hourglass-half', usado: 'fa-check', expirado: 'fa-clock', cancelado: 'fa-ban', pendente: 'fa-hourglass-half', recusado: 'fa-ban' };
 
 /**
  * Card de um QR Code do convidado. O QR real só é desenhado quando ativo;
@@ -31,7 +31,11 @@ export default function QrCard({ qr, now, onOpen, onToast }) {
   };
 
   const timeNote =
-    status === 'ativo'
+    status === 'pendente'
+      ? 'Aguardando aprovação da portaria. O QR Code será liberado após a aprovação.'
+      : status === 'recusado'
+        ? `Recusado pela portaria${qr.motivoRecusa ? `: ${qr.motivoRecusa}` : ''}`
+        : status === 'ativo'
       ? fmtRemaining(qr.validUntil - now)
       : status === 'agendado'
         ? `Libera em ${fmtShort(qr.validFrom)}`
@@ -102,7 +106,7 @@ export default function QrCard({ qr, now, onOpen, onToast }) {
 
       <div className="mt-4 flex items-center justify-between gap-2 border-t border-white/[0.06] pt-4">
         <span className="min-w-0 truncate font-mono text-xs tracking-wider text-slate-400" data-testid="qr-token">
-          {active || status === 'agendado' ? qr.token : maskToken(qr.token)}
+          {active || status === 'agendado' ? qr.token : status === 'pendente' || status === 'recusado' ? 'QR Code não liberado' : maskToken(qr.token)}
         </span>
         <div className="flex shrink-0 items-center gap-1">
           <button type="button" onClick={handleCopy} disabled={dim} className={btnIcon} aria-label="Copiar código" title="Copiar código">

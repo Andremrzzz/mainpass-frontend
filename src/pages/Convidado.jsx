@@ -28,7 +28,7 @@ export default function Convidado() {
   const [tab, setTab] = useState('qrcodes');
   const [toast, showToast] = useToast(3500);
   const now = useNow(15000);
-  const data = useResource(getConvidado);
+  const data = useResource(getConvidado, 'guest', { refreshMs: 15000 });
 
   const perfil = data.data?.perfil ?? null;
   const prefs = perfil?.preferencias;

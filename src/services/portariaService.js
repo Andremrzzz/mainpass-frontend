@@ -74,6 +74,10 @@ export const updateMorador = (...args) => driver.updateMorador(...args);
 export const listConvitesAtivos = (...args) => driver.listConvitesAtivos(...args);
 export const createConvite = (...args) => driver.createConvite(...args);
 
+export const listSolicitacoes = (...args) => driver.listSolicitacoes(...args);
+export const aprovarSolicitacao = (...args) => driver.aprovarSolicitacao(...args);
+export const recusarSolicitacao = (...args) => driver.recusarSolicitacao(...args);
+
 export const listChamados = (...args) => driver.listChamados(...args);
 export const createChamado = (...args) => driver.createChamado(...args);
 export const resolverChamado = (...args) => driver.resolverChamado(...args);

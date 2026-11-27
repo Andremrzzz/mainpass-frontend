@@ -68,7 +68,7 @@ const DENIALS = [
   { status: 'expirado', reason: 'Passe expirado' },
   { status: 'negado', reason: 'QR Code inválido' },
   { status: 'negado', reason: 'Fora do horário permitido' },
-  { status: 'negado', reason: 'Convite não aprovado pelo morador' },
+  { status: 'negado', reason: 'Convite aguardando aprovação da portaria' },
 ];
 
 const buildInvites = (now) => [

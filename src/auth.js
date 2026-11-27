@@ -193,13 +193,24 @@ const MOCK_USERS = [
   },
 ];
 
+// Contas criadas pelo cadastro no modo local (só demonstração: senha em texto puro no navegador)
+const LOCAL_USERS_KEY = 'mainpass.mock.users';
+const readLocalUsers = () => {
+  try {
+    const list = JSON.parse(localStorage.getItem(LOCAL_USERS_KEY) || '[]');
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+};
+
 // Modo local (sem VITE_API_URL): usuários de teste acima.
 const authenticateMock = async (login, password) => {
   await new Promise((resolve) => setTimeout(resolve, 900));
 
   // Atenção: comparar senha em texto puro é aceitável só nesta simulação.
-  const found = MOCK_USERS.find(
-    (u) => (u.email === login || u.cpf === login) && u.password === password
+  const found = [...MOCK_USERS, ...readLocalUsers()].find(
+    (u) => (u.email === login || (u.cpf && u.cpf === login)) && u.password === password
   );
   if (!found) throw new AuthError('INVALID_CREDENTIALS');
 
@@ -273,3 +284,50 @@ const authenticateApi = async (login, password) => {
  */
 export const authenticate = (login, password) =>
   USE_LOCAL ? authenticateMock(login, password) : authenticateApi(login, password);
+
+/* -------------------------------------------------------------------------- */
+/*  Cadastro (auto-cadastro)                                                  */
+/*                                                                            */
+/*  REGRA: toda conta criada por aqui é CONVIDADO. O cliente não escolhe o    */
+/*  perfil (não existe esse parâmetro) e o back-end também fixa CONVIDADO.    */
+/*  Conta de Morador só é criada pelo porteiro (Gestão de Moradores).         */
+/*                                                                            */
+/*  POST /api/auth/cadastro  { nome, email, senha }  ->  201 { id, nome,      */
+/*  email, perfil: "CONVIDADO" }   |  409 EMAIL_EM_USO  |  400 validação      */
+/* -------------------------------------------------------------------------- */
+const registerMock = async ({ name, email, password }) => {
+  await new Promise((resolve) => setTimeout(resolve, 900));
+  const mail = String(email).trim().toLowerCase();
+  const users = readLocalUsers();
+  if ([...MOCK_USERS, ...users].some((u) => u.email === mail)) throw new AuthError('EMAIL_IN_USE');
+  users.push({ email: mail, cpf: '', password, role: ROLES.CONVIDADO, name: String(name).trim() });
+  try {
+    localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(users));
+  } catch {
+    throw new AuthError('SERVER_ERROR', 'Não foi possível salvar o cadastro neste navegador.');
+  }
+  return { name: String(name).trim(), email: mail, role: ROLES.CONVIDADO };
+};
+
+const registerApi = async ({ name, email, password }) => {
+  let res;
+  try {
+    res = await fetch(`${API_URL}/api/auth/cadastro`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ nome: String(name).trim(), email: String(email).trim().toLowerCase(), senha: password }),
+    });
+  } catch {
+    throw new AuthError('SERVER_ERROR', 'Não foi possível conectar à API.');
+  }
+  if (res.status === 409) throw new AuthError('EMAIL_IN_USE');
+  if (res.status === 400) {
+    const body = await res.json().catch(() => null);
+    throw new AuthError('INVALID_DATA', body?.mensagem);
+  }
+  if (!res.ok) throw new AuthError('SERVER_ERROR', `Falha no cadastro (HTTP ${res.status}).`);
+  return res.json().catch(() => ({}));
+};
+
+export const register = ({ name, email, password }) =>
+  USE_LOCAL ? registerMock({ name, email, password }) : registerApi({ name, email, password });

@@ -7,10 +7,13 @@ import PortariaHeader from '../components/portaria/PortariaHeader';
 import OverviewTab from '../components/portaria/OverviewTab';
 import ResidentsTab from '../components/portaria/ResidentsTab';
 import InvitesTab from '../components/portaria/InvitesTab';
+import RequestsTab from '../components/portaria/RequestsTab';
 import SupportTab from '../components/portaria/SupportTab';
 
 import useBodyScrollLock from '../hooks/useBodyScrollLock';
+import useResource from '../hooks/useResource';
 import useToast from '../hooks/useToast';
+import { listSolicitacoes } from '../services/portariaService';
 import { PORTARIA_MENU_ITEMS, ROLE_LABELS } from '../constants/portaria';
 import { clearSession, getSession } from '../auth';
 
@@ -18,6 +21,7 @@ import { clearSession, getSession } from '../auth';
 const VIEWS = {
   overview: OverviewTab,
   residents: ResidentsTab,
+  requests: RequestsTab,
   invites: InvitesTab,
   support: SupportTab,
 };
@@ -34,6 +38,11 @@ export default function Portaria() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [scanRequest, setScanRequest] = useState(0);
   const [toast, showToast] = useToast(3500);
+
+  // Fila de aprovação: alimenta o contador do menu e a tela de solicitações (atualiza sozinha)
+  const requests = useResource(listSolicitacoes, 'requests', { refreshMs: 10000 });
+  const pendingCount = (requests.data ?? []).length;
+  const menuItems = PORTARIA_MENU_ITEMS.map((i) => (i.key === 'requests' ? { ...i, badge: pendingCount } : i));
 
   useBodyScrollLock(sidebarOpen);
 
@@ -68,7 +77,7 @@ export default function Portaria() {
       <Sidebar
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
-        items={PORTARIA_MENU_ITEMS}
+        items={menuItems}
         activeMenu={activeView}
         onSelect={handleSelect}
         onLogout={handleLogout}
@@ -80,7 +89,7 @@ export default function Portaria() {
         <PortariaHeader onOpenMenu={() => setSidebarOpen(true)} onScan={handleScan} />
 
         <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
-          <View key={activeView} onToast={showToast} scanRequest={scanRequest} />
+          <View key={activeView} onToast={showToast} scanRequest={scanRequest} requests={requests} />
 
           <p className="mt-12 text-center text-xs text-slate-600">
             MainPass © {new Date().getFullYear()} — Controle de Acesso

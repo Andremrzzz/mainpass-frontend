@@ -81,5 +81,5 @@ export const MOCK_PROFILE = {
   email: 'carlos.lima@email.com',
   cpf: '12345678901',
   phone: '11987654321',
-  role: 'Convidado / Morador',
+  role: 'Morador',
 };

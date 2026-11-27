@@ -53,7 +53,7 @@ function Switch({ id, label, description, checked, onChange }) {
  */
 export default function ProfileTab({ perfil, onPrefs, onLogout, onReset }) {
   const [resetting, setResetting] = useState(false);
-  const { preferencias: prefs, anfitriao, convite } = perfil;
+  const { preferencias: prefs, anfitriao, convite } = perfil; // anfitriao/convite: nulos até o 1º convite
   const hide = prefs.ocultarDadosSensiveis;
 
   const handleReset = async () => {
@@ -71,9 +71,10 @@ export default function ProfileTab({ perfil, onPrefs, onLogout, onReset }) {
         <Rows
           items={[
             ['Nome', perfil.nome],
+            ['Tipo de conta', 'Convidado'],
             ['E-mail', hide ? maskEmail(perfil.email) : perfil.email],
-            ['Telefone', hide ? maskPhone(perfil.telefone) : formatPhone(perfil.telefone)],
-            [perfil.tipoDocumento, maskDocument(perfil.tipoDocumento, perfil.documento), true],
+            ['Telefone', perfil.telefone ? (hide ? maskPhone(perfil.telefone) : formatPhone(perfil.telefone)) : '—'],
+            [perfil.tipoDocumento || 'Documento', perfil.documento ? maskDocument(perfil.tipoDocumento, perfil.documento) : '—', true],
           ]}
         />
       </Section>
@@ -81,11 +82,11 @@ export default function ProfileTab({ perfil, onPrefs, onLogout, onReset }) {
       <Section title="Convite e anfitrião">
         <Rows
           items={[
-            ['Convidado por', anfitriao.nome],
-            ['Unidade', `Bloco ${anfitriao.bloco}, unidade ${anfitriao.unidade}`],
-            ['Motivo da visita', convite.motivo],
-            ['Convite válido de', fmtDate(convite.inicio)],
-            ['Convite válido até', fmtDate(convite.fim)],
+            ['Convidado por', anfitriao?.nome || '—'],
+            ['Unidade', anfitriao ? `Bloco ${anfitriao.bloco}, unidade ${anfitriao.unidade}` : '—'],
+            ['Motivo da visita', convite?.motivo || '—'],
+            ['Convite válido de', convite ? fmtDate(convite.inicio) : '—'],
+            ['Convite válido até', convite ? fmtDate(convite.fim) : '—'],
           ]}
         />
       </Section>

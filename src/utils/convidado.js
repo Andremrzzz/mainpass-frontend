@@ -7,11 +7,14 @@ import { maskCpf } from './format';
 
 /**
  * Status de um QR Code do convidado, calculado a partir do relógio.
- * Ordem: cancelado > usado (usos esgotados) > expirado > agendado > ativo.
+ * Ordem: cancelado > recusado > pendente (aguardando a portaria) > usado (usos esgotados) > expirado > agendado > ativo.
+ * Convite pendente ou recusado NUNCA é "ativo": o QR Code só existe depois que a portaria aprova.
  * O servidor deve aplicar a mesma regra ao validar na portaria.
  */
 export const getQrStatus = (qr, now = Date.now()) => {
   if (qr.canceladoEm) return 'cancelado';
+  if (qr.aprovacao === 'recusado') return 'recusado';
+  if (qr.aprovacao === 'pendente') return now >= qr.validUntil ? 'expirado' : 'pendente';
   if (qr.usos >= qr.usosMax) return 'usado';
   if (now >= qr.validUntil) return 'expirado';
   if (now < qr.validFrom) return 'agendado';

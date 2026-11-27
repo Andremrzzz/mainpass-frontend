@@ -7,6 +7,9 @@ import { btnPrimary, btnSecondary, inputBase, inputOk } from '../../constants/ui
 const READER_ID = 'portaria-qr-reader';
 const COOLDOWN_MS = 3000; // tempo do feedback na tela antes de liberar o próximo visitante
 const REPEAT_GUARD_MS = 4000; // o mesmo código lido de novo logo após o feedback é ignorado
+const START_TIMEOUT_MS = 12000; // sem resposta da câmera/permissão nesse prazo = erro (nunca fica preso em "Iniciando")
+const LIST_TIMEOUT_MS = 8000; // idem para Html5Qrcode.getCameras()
+const SLOW_HINT_MS = 4000; // depois disso mostra a dica sobre o pedido de permissão do navegador
 
 /* Diagnóstico de falha da câmera -> texto para o porteiro */
 const CAMERA_ERRORS = {
@@ -30,6 +33,11 @@ const CAMERA_ERRORS = {
     title: 'Câmera em uso por outro aplicativo',
     text: 'Feche o outro aplicativo ou aba que está usando a câmera e tente novamente.',
   },
+  timeout: {
+    icon: 'fa-hourglass-half',
+    title: 'A câmera não respondeu',
+    text: 'O navegador não liberou a câmera a tempo. Se apareceu um pedido de permissão, clique em Permitir e tente novamente.',
+  },
   other: {
     icon: 'fa-triangle-exclamation',
     title: 'Não foi possível iniciar a câmera',
@@ -37,20 +45,52 @@ const CAMERA_ERRORS = {
   },
 };
 
+// html5-qrcode rejeita ora com Error, ora com string: junta nome + mensagem + texto para classificar
+const errorText = (err) => [err?.name, err?.message, typeof err === 'string' ? err : ''].filter(Boolean).join(' ');
+
 const classifyCameraError = (err) => {
-  const text = String(err?.name || err?.message || err || '');
+  const text = errorText(err);
+  if (/StartTimeout/i.test(text)) return 'timeout';
   if (/NotAllowed|Permission|denied/i.test(text)) return 'denied';
-  if (/NotFound|DevicesNotFound|no camera/i.test(text)) return 'nocamera';
-  if (/NotReadable|TrackStart|in use/i.test(text)) return 'busy';
+  if (/NotFound|DevicesNotFound|no camera|Requested device/i.test(text)) return 'nocamera';
+  if (/NotReadable|TrackStart|in use|Could not start video/i.test(text)) return 'busy';
   return 'other';
 };
+
+// Promessa que nunca fica pendente para sempre
+const withTimeout = (promise, ms) =>
+  new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(Object.assign(new Error('A câmera não respondeu a tempo'), { name: 'StartTimeout' })), ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); }
+    );
+  });
+
+// O <div> alvo precisa estar no DOM antes de Html5Qrcode.start(); espera até ~1,5 s por ele
+const waitForReader = async () => {
+  for (let i = 0; i < 30; i += 1) {
+    const el = document.getElementById(READER_ID);
+    if (el?.isConnected) return el;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw Object.assign(new Error('Elemento do leitor não encontrado'), { name: 'ReaderMissing' });
+};
+
+// Prefere câmera traseira pelo nome; senão a última da lista (em celulares costuma ser a traseira)
+const rankCameras = (cameras) => {
+  const score = (c) => (/back|rear|environment|traseira|trás/i.test(c.label || '') ? 2 : /front|frontal|user/i.test(c.label || '') ? 0 : 1);
+  return cameras.map((c, i) => ({ c, i })).sort((a, b) => score(b.c) - score(a.c) || b.i - a.i).map((x) => x.c);
+};
+
+const STOP_TIMEOUT_MS = 2500; // stop() de uma instância meio iniciada pode nunca resolver: não prende a fila
 
 const safeStop = async (scanner) => {
   if (!scanner) return;
   try {
     const state = scanner.getState();
     if (state === Html5QrcodeScannerState.SCANNING || state === Html5QrcodeScannerState.PAUSED) {
-      await scanner.stop();
+      await Promise.race([scanner.stop(), new Promise((resolve) => setTimeout(resolve, STOP_TIMEOUT_MS))]);
     }
   } catch {
     /* já parado */
@@ -60,6 +100,9 @@ const safeStop = async (scanner) => {
   } catch {
     /* já limpo */
   }
+  // sobras de uma tentativa que falhou (vídeo/canvas) não podem acumular no alvo
+  const el = document.getElementById(READER_ID);
+  if (el) el.innerHTML = '';
 };
 
 /**
@@ -82,6 +125,7 @@ export default function QrScannerPanel({ onValidated, scanRequest = 0 }) {
   const chainRef = useRef(Promise.resolve());
   const wantRef = useRef('on'); // estado desejado da câmera: 'on' | 'off'
   const mountedRef = useRef(true);
+  const failedRef = useRef(false); // última partida falhou: a fila NÃO reinicia sozinha (só "Tentar novamente")
   const busyRef = useRef(false); // true = validando ou exibindo feedback
   const lastRef = useRef({ code: '', until: 0 });
   const timerRef = useRef(null);
@@ -90,6 +134,8 @@ export default function QrScannerPanel({ onValidated, scanRequest = 0 }) {
 
   const [phase, setPhase] = useState('starting'); // starting | scanning | paused | error
   const [cameraError, setCameraError] = useState(null);
+  const [cameraDetail, setCameraDetail] = useState('');
+  const [slow, setSlow] = useState(false);
   const [result, setResult] = useState(null); // { kind: 'validating' | 'allowed' | 'denied' | 'failed', title, detail }
   const [manualOpen, setManualOpen] = useState(false);
   const [manualCode, setManualCode] = useState('');
@@ -146,6 +192,7 @@ export default function QrScannerPanel({ onValidated, scanRequest = 0 }) {
     safeSet(() => {
       setPhase('starting');
       setCameraError(null);
+      setCameraDetail('');
     });
 
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
@@ -156,43 +203,77 @@ export default function QrScannerPanel({ onValidated, scanRequest = 0 }) {
       return;
     }
 
-    let scanner = null;
-    try {
-      const cameras = await Html5Qrcode.getCameras(); // também dispara o pedido de permissão
-      if (!cameras.length) throw new Error('NotFoundError');
-      if (wantRef.current !== 'on' || !mountedRef.current) return;
+    const attempt = { cancelled: false, scanners: [] };
+    const config = {
+      fps: 10,
+      qrbox: (w, h) => {
+        const side = Math.floor(Math.min(w, h) * 0.7);
+        return { width: side, height: side };
+      },
+    };
+    const onDecode = (text) => handleCodeRef.current(text);
 
-      scanner = new Html5Qrcode(READER_ID, {
-        verbose: false,
-        formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-      });
-      const config = {
-        fps: 10,
-        qrbox: (w, h) => {
-          const side = Math.floor(Math.min(w, h) * 0.7);
-          return { width: side, height: side };
-        },
-      };
-      const onDecode = (text) => handleCodeRef.current(text);
-
+    // Uma instância por tentativa. start() nunca fica pendente: estoura em START_TIMEOUT_MS.
+    const tryStart = async (cameraIdOrConstraints) => {
+      const scanner = new Html5Qrcode(READER_ID, { verbose: false, formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE] });
+      attempt.scanners.push(scanner);
+      const starting = scanner.start(cameraIdOrConstraints, config, onDecode, () => {});
+      // Se uma tentativa "pendurada" resolver tarde demais, a câmera é solta (não fica ligada sem dono)
+      starting.then(() => attempt.cancelled && safeStop(scanner), () => {});
       try {
-        await scanner.start({ facingMode: 'environment' }, config, onDecode, () => {});
+        await withTimeout(starting, START_TIMEOUT_MS);
+        return scanner;
+      } catch (err) {
+        await safeStop(scanner);
+        throw err;
+      }
+    };
+
+    try {
+      await waitForReader();
+      if (wantRef.current !== 'on' || !mountedRef.current) return; // desmontou/pausou enquanto esperava
+
+      let scanner = null;
+      try {
+        // facingMode não-exato: traseira quando existe; em notebook/PC cai na webcam disponível.
+        // Isto também dispara o pedido de permissão.
+        scanner = await tryStart({ facingMode: 'environment' });
       } catch (firstErr) {
-        if (classifyCameraError(firstErr) === 'denied') throw firstErr;
-        // Sem câmera traseira (notebook/desktop): usa a última da lista
-        await scanner.start(cameras[cameras.length - 1].id, config, onDecode, () => {});
+        const kind = classifyCameraError(firstErr);
+        if (kind === 'denied' || kind === 'timeout') throw firstErr;
+        // Fallback: lista as câmeras e tenta uma a uma (câmera única, nomes estranhos, traseira indisponível...)
+        const cameras = await withTimeout(Html5Qrcode.getCameras(), LIST_TIMEOUT_MS);
+        if (!cameras?.length) throw Object.assign(new Error('Nenhuma câmera encontrada'), { name: 'NotFoundError' });
+        let lastErr = firstErr;
+        for (const cam of rankCameras(cameras)) {
+          if (wantRef.current !== 'on' || !mountedRef.current) return;
+          try {
+            scanner = await tryStart(cam.id);
+            break;
+          } catch (err) {
+            lastErr = err;
+            if (classifyCameraError(err) === 'timeout') throw err;
+          }
+        }
+        if (!scanner) throw lastErr;
       }
 
-      scannerRef.current = scanner;
-      if (wantRef.current !== 'on' || !mountedRef.current) return; // a limpeza abaixo já foi pedida
+      scannerRef.current = scanner; // se pediram parada nesse meio-tempo, o próximo item da fila a executa
+      if (wantRef.current !== 'on' || !mountedRef.current) return;
       safeSet(() => setPhase('scanning'));
     } catch (err) {
-      await safeStop(scanner);
+      attempt.cancelled = true;
+      failedRef.current = true;
       scannerRef.current = null;
+      // eslint-disable-next-line no-console
+      console.warn('[QrScanner] falha ao iniciar a câmera:', err);
+      // Mostra o erro ANTES de limpar: a tela nunca fica em "Iniciando câmera..." por causa da limpeza
       safeSet(() => {
         setCameraError(classifyCameraError(err));
+        setCameraDetail(errorText(err).trim().slice(0, 140));
         setPhase('error');
       });
+      await Promise.all(attempt.scanners.map(safeStop));
     }
   }, []);
 
@@ -205,7 +286,7 @@ export default function QrScannerPanel({ onValidated, scanRequest = 0 }) {
   // Sincroniza a câmera com o estado desejado, em fila (evita start/stop concorrentes, p. ex. StrictMode)
   const sync = useCallback(() => {
     chainRef.current = chainRef.current.then(async () => {
-      if (wantRef.current === 'on' && !scannerRef.current) await startCamera();
+      if (wantRef.current === 'on' && !scannerRef.current && !failedRef.current) await startCamera();
       else if (wantRef.current === 'off' && scannerRef.current) await stopCamera();
       if (wantRef.current === 'off' && !scannerRef.current) {
         safeSet(() => setPhase((p) => (p === 'error' ? p : 'paused')));
@@ -216,6 +297,7 @@ export default function QrScannerPanel({ onValidated, scanRequest = 0 }) {
   useEffect(() => {
     mountedRef.current = true;
     wantRef.current = 'on';
+    failedRef.current = false;
     sync();
     return () => {
       mountedRef.current = false;
@@ -232,8 +314,17 @@ export default function QrScannerPanel({ onValidated, scanRequest = 0 }) {
   };
   const resume = useCallback(() => {
     wantRef.current = 'on';
+    failedRef.current = false; // ação explícita do usuário: tenta de novo
     sync();
   }, [sync]);
+
+  // Dica enquanto aguarda: normalmente é o pedido de permissão do navegador
+  useEffect(() => {
+    setSlow(false);
+    if (phase !== 'starting') return undefined;
+    const t = setTimeout(() => setSlow(true), SLOW_HINT_MS);
+    return () => clearTimeout(t);
+  }, [phase]);
 
   // "Escanear QR Code" no cabeçalho: retoma a câmera e traz o leitor para a tela
   useEffect(() => {
@@ -299,6 +390,11 @@ export default function QrScannerPanel({ onValidated, scanRequest = 0 }) {
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black text-sm text-slate-400">
             <i className="fas fa-circle-notch fa-spin text-lg"></i>
             Iniciando câmera...
+            {slow && (
+              <p className="max-w-[16rem] text-center text-xs text-slate-500" data-testid="camera-slow-hint">
+                Se o navegador pedir permissão para usar a câmera, clique em <span className="text-slate-300">Permitir</span>.
+              </p>
+            )}
           </div>
         )}
 
@@ -322,6 +418,7 @@ export default function QrScannerPanel({ onValidated, scanRequest = 0 }) {
             </div>
             <p className="text-sm font-medium text-slate-100">{err.title}</p>
             <p className="text-xs leading-relaxed text-slate-500">{err.text}</p>
+            {cameraDetail && <p className="break-all font-mono text-[10px] text-slate-600" data-testid="camera-detail">{cameraDetail}</p>}
             <div className="mt-2 flex flex-wrap justify-center gap-2">
               {cameraError !== 'insecure' && (
                 <button type="button" onClick={resume} className={btnSecondary}>

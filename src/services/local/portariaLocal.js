@@ -3,6 +3,7 @@ import { latency, nextId, read, transaction } from './localDb';
 import { startOfToday } from '../../utils/dates';
 import { isValidCpf, isValidEmail, onlyDigits } from '../../utils/masks';
 import { formatUnit } from '../../utils/residents';
+import { ambienteNome, decisionOf, setDecision } from './inviteModel';
 
 /* -------------------------------------------------------------------------- */
 /*  Implementação LOCAL (localStorage) do serviço da portaria.                */
@@ -54,8 +55,11 @@ const assertUnique = (db, data, ignoreId = null) => {
 const findResident = (db, id) => db.residents.find((r) => r.id === Number(id));
 
 const guestStatus = (invite, now) => {
-  if (!invite.approved) return 'pendente';
-  return invite.validUntil <= now ? 'expirado' : 'valido';
+  const decision = decisionOf(invite);
+  if (decision === 'recusado') return 'recusado';
+  if (decision === 'cancelado') return 'cancelado';
+  if (invite.validUntil <= now) return 'expirado';
+  return decision === 'pendente' ? 'pendente' : 'valido';
 };
 
 // Forma pública do convite (unidade e morador sempre atuais, vindos do cadastro)
@@ -70,8 +74,22 @@ const toInviteView = (db, invite) => {
     host: resident ? resident.nome : '—',
     validFrom: invite.validFrom,
     validUntil: invite.validUntil,
+    status: decisionOf(invite),
   };
 };
+
+// Solicitação na fila da portaria: convite + dados completos do convidado e do pedido
+const toSolicitacaoView = (db, invite) => ({
+  ...toInviteView(db, invite),
+  code: undefined, // a portaria nunca vê o código/QR de um convite
+  guestEmail: invite.guestEmail ?? '',
+  guestPhone: invite.guestPhone ?? '',
+  ambiente: invite.ambienteNome ?? ambienteNome(invite.ambienteId),
+  usosMax: invite.usosMax ?? 1,
+  observacao: invite.observacao ?? '',
+  criadoEm: invite.criadoEm ?? Math.min(invite.validFrom, Date.now()),
+  motivoRecusa: invite.motivoRecusa ?? '',
+});
 
 const randomBlock = () => {
   const bytes = new Uint8Array(2);
@@ -90,7 +108,7 @@ const generateCode = (db) => {
 
 const normalizeCode = (code) => String(code ?? '').trim().toUpperCase();
 
-export const capabilities = { criarConvite: true };
+export const capabilities = { criarConvite: true, solicitacoes: true };
 
 /* --------------------------------- Saúde ---------------------------------- */
 export const checkHealth = async () => ({ status: 'UP', storage: 'localStorage' });
@@ -143,9 +161,16 @@ export const validarConvite = async ({ code, direction = 'entrada' }) => {
       status = 'negado';
       reason = 'QR Code inválido';
     } else if (direction === 'entrada') {
-      if (!invite.approved) {
+      const decision = decisionOf(invite);
+      if (decision === 'pendente') {
         status = 'negado';
-        reason = 'Convite não aprovado pelo morador';
+        reason = 'Convite aguardando aprovação da portaria';
+      } else if (decision === 'recusado') {
+        status = 'negado';
+        reason = 'Convite recusado pela portaria';
+      } else if (decision === 'cancelado') {
+        status = 'negado';
+        reason = 'Convite cancelado';
       } else if (invite.validFrom > now) {
         status = 'negado';
         reason = 'Fora do horário permitido';
@@ -227,7 +252,7 @@ export const listConvitesAtivos = async () => {
   return read((db) => {
     const now = Date.now();
     return db.invites
-      .filter((i) => i.approved && i.validFrom <= now && i.validUntil > now)
+      .filter((i) => decisionOf(i) === 'aprovado' && i.validFrom <= now && i.validUntil > now)
       .sort((a, b) => a.validUntil - b.validUntil)
       .map((i) => toInviteView(db, i));
   });
@@ -265,10 +290,51 @@ export const createConvite = async (data) => {
       validFrom,
       validUntil,
       approved: data.approved !== false,
+      status: data.approved === false ? 'pendente' : 'aprovado', // criado pela própria portaria: já nasce aprovado
+      criadoEm: now,
+      decididoEm: data.approved === false ? null : now,
     };
     db.invites.unshift(invite);
     return toInviteView(db, invite);
   });
+};
+
+/* ------------------------- Fila de solicitações (aprovação) ---------------- */
+export const listSolicitacoes = async () => {
+  await latency();
+  return read((db) => {
+    const now = Date.now();
+    return db.invites
+      .filter((i) => decisionOf(i) === 'pendente' && i.validUntil > now)
+      .sort((a, b) => (a.criadoEm ?? a.validFrom) - (b.criadoEm ?? b.validFrom))
+      .map((i) => toSolicitacaoView(db, i));
+  });
+};
+
+const decidir = (id, decision, motivo) =>
+  transaction((db) => {
+    const invite = db.invites.find((i) => i.id === Number(id));
+    if (!invite) throw new ApiError(404, 'Solicitação não encontrada.');
+    if (decisionOf(invite) !== 'pendente') {
+      throw new ApiError(409, 'Esta solicitação já foi decidida.');
+    }
+    if (invite.validUntil <= Date.now()) {
+      throw new ApiError(409, 'O prazo deste convite já terminou. Peça ao morador para criar outro.');
+    }
+    setDecision(invite, decision);
+    invite.decididoEm = Date.now();
+    invite.motivoRecusa = decision === 'recusado' ? String(motivo ?? '').trim().slice(0, 255) : '';
+    return toSolicitacaoView(db, invite);
+  });
+
+export const aprovarSolicitacao = async (id) => {
+  await latency(200);
+  return decidir(id, 'aprovado');
+};
+
+export const recusarSolicitacao = async (id, motivo) => {
+  await latency(200);
+  return decidir(id, 'recusado', motivo);
 };
 
 /* --------------------------------- Chamados ------------------------------- */

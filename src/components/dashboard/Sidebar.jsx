@@ -7,7 +7,7 @@ import { getInitials } from '../../utils/format';
 /* -------------------------------------------------------------------------- */
 /*  Conteúdo (compartilhado entre a sidebar fixa e o drawer mobile)           */
 /* -------------------------------------------------------------------------- */
-function SidebarContent({ userName, userRole, activeMenu, onSelect, onLogout, onClose }) {
+function SidebarContent({ items, userName, userRole, activeMenu, onSelect, onLogout, onClose }) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-16 shrink-0 items-center justify-between border-b border-white/[0.08] px-5">
@@ -27,7 +27,7 @@ function SidebarContent({ userName, userRole, activeMenu, onSelect, onLogout, on
       <nav className="flex-1 overflow-y-auto px-3 py-5" aria-label="Navegação principal">
         <p className="mb-2 px-3 text-[11px] font-medium uppercase tracking-wider text-slate-500">Menu</p>
         <ul className="space-y-0.5">
-          {MENU_ITEMS.map((item) => {
+          {items.map((item) => {
             const active = activeMenu === item.key;
             return (
               <li key={item.key}>
@@ -47,6 +47,11 @@ function SidebarContent({ userName, userRole, activeMenu, onSelect, onLogout, on
                     }`}
                   ></i>
                   {item.label}
+                  {item.badge > 0 && (
+                    <span className="ml-auto rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-semibold text-amber-300 ring-1 ring-inset ring-amber-500/30" aria-label={`${item.badge} pendente(s)`}>
+                      {item.badge}
+                    </span>
+                  )}
                 </button>
               </li>
             );
@@ -86,10 +91,19 @@ function SidebarContent({ userName, userRole, activeMenu, onSelect, onLogout, on
 /*   - onLogout: encerra a sessão                                             */
 /*   - userName / userRole: identificação exibida no rodapé do menu           */
 /* -------------------------------------------------------------------------- */
-export default function Sidebar({ open, onClose, activeMenu, onSelect, onLogout, userName, userRole }) {
+export default function Sidebar({
+  open,
+  onClose,
+  items = MENU_ITEMS,
+  activeMenu,
+  onSelect,
+  onLogout,
+  userName,
+  userRole,
+}) {
   useEscapeKey(onClose, open);
 
-  const content = { userName, userRole, activeMenu, onSelect, onLogout };
+  const content = { items, userName, userRole, activeMenu, onSelect, onLogout };
 
   return (
     <>

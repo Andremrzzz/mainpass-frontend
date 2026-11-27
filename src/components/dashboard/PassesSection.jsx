@@ -3,9 +3,9 @@ import PassCard from './PassCard';
 import { FOCUS_RING, PASS_TABS } from '../../constants/dashboard';
 
 const HELP_STEPS = [
-  'Escolha um passe com status Válido.',
-  'Abra o QR Code e aumente o brilho da tela.',
-  'Aproxime o QR Code do leitor na entrada da portaria.',
+  'Crie um novo convite e aguarde a aprovação da portaria.',
+  'Com o convite aprovado (status Válido), o QR Code é liberado ao convidado.',
+  'O convidado apresenta o QR Code no leitor da portaria, dentro da validade.',
 ];
 
 /**
@@ -18,7 +18,7 @@ const HELP_STEPS = [
  *  - onSelectPass:     (id) => void — abre o QrModal
  *  - onRequestAccess:  solicita um novo acesso
  */
-export default function PassesSection({ passes, now, onSelectPass, onRequestAccess }) {
+export default function PassesSection({ passes, now, onSelectPass, onRequestAccess, onCancelPass }) {
   const [filter, setFilter] = useState('todos');
   const [query, setQuery] = useState('');
   const [showHelp, setShowHelp] = useState(true);
@@ -28,6 +28,7 @@ export default function PassesSection({ passes, now, onSelectPass, onRequestAcce
       todos: passes.length,
       valido: passes.filter((p) => p.status === 'valido').length,
       pendente: passes.filter((p) => p.status === 'pendente').length,
+      recusado: passes.filter((p) => p.status === 'recusado').length,
       expirado: passes.filter((p) => p.status === 'expirado').length,
     }),
     [passes]
@@ -54,7 +55,7 @@ export default function PassesSection({ passes, now, onSelectPass, onRequestAcce
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-100">Meus acessos</h1>
           <p className="mt-1.5 text-sm text-slate-400">
-            Selecione um passe para ver o QR Code e os detalhes do acesso.
+            Crie convites para seus visitantes. O QR Code é liberado depois que a portaria aprovar.
           </p>
         </div>
         <button
@@ -63,7 +64,7 @@ export default function PassesSection({ passes, now, onSelectPass, onRequestAcce
           className={`inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-accent px-4 text-sm font-medium text-white shadow-card transition-colors duration-200 hover:bg-accent-hover ${FOCUS_RING}`}
         >
           <i className="fas fa-plus text-xs"></i>
-          Solicitar novo acesso
+          Novo convite
         </button>
       </div>
 

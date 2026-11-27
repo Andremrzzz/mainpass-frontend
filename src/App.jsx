@@ -74,7 +74,7 @@ export default function App() {
           {/* Pública: já redireciona quem possui sessão válida */}
           <Route path="/" element={<Login />} />
 
-          {/* Convidado / morador */}
+          {/* Morador (o convidado tem a própria rota, /convidado) */}
           <Route element={<ProtectedRoute roles={[ROLES.USER, ROLES.PORTEIRO]} />}>
             <Route path="/dashboard" element={<UserDashboard />} />
           </Route>

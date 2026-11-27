@@ -36,7 +36,7 @@ export const STATUS = {
     bar: 'bg-emerald-500',
   },
   pendente: {
-    label: 'Pendente',
+    label: 'Aguardando portaria',
     badge: 'bg-amber-500/10 text-amber-400 ring-amber-500/20',
     dot: 'bg-amber-400',
     bar: 'bg-amber-500',
@@ -47,12 +47,31 @@ export const STATUS = {
     dot: 'bg-rose-400',
     bar: 'bg-rose-500/70',
   },
+  recusado: {
+    label: 'Recusado',
+    badge: 'bg-rose-500/10 text-rose-400 ring-rose-500/20',
+    dot: 'bg-rose-400',
+    bar: 'bg-rose-500/70',
+  },
+  cancelado: {
+    label: 'Cancelado',
+    badge: 'bg-white/[0.04] text-slate-300 ring-white/[0.08]',
+    dot: 'bg-slate-400',
+    bar: 'bg-slate-500/70',
+  },
+  utilizado: {
+    label: 'Utilizado',
+    badge: 'bg-white/[0.04] text-slate-300 ring-white/[0.08]',
+    dot: 'bg-slate-400',
+    bar: 'bg-slate-500/70',
+  },
 };
 
 // Abas de filtro da lista de passes
 export const PASS_TABS = [
   { key: 'todos', label: 'Todos' },
   { key: 'valido', label: 'Válidos' },
-  { key: 'pendente', label: 'Pendentes' },
+  { key: 'pendente', label: 'Aguardando' },
+  { key: 'recusado', label: 'Recusados' },
   { key: 'expirado', label: 'Expirados' },
 ];

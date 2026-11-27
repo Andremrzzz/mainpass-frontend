@@ -5,6 +5,8 @@ import Header from '../components/dashboard/Header';
 import Sidebar from '../components/dashboard/Sidebar';
 import EntryHistory from '../components/dashboard/EntryHistory';
 import PassesSection from '../components/dashboard/PassesSection';
+import NewInviteModal from '../components/dashboard/NewInviteModal';
+import { EmptyState, ErrorState, TableSkeleton } from '../components/ui/States';
 import QrModal from '../components/dashboard/QrModal';
 import Toast from '../components/dashboard/Toast';
 import Profile from './Profile';
@@ -12,15 +14,18 @@ import AccessHistory from './AccessHistory';
 
 import useBodyScrollLock from '../hooks/useBodyScrollLock';
 import useNow from '../hooks/useNow';
+import useResource from '../hooks/useResource';
 import useToast from '../hooks/useToast';
+import { listMeusConvites } from '../services/conviteService';
 
 import { AVAILABLE_MENUS, menuItemsFor } from '../constants/dashboard';
-import { MOCK_NOTIFICATIONS, MOCK_PASSES, MOCK_PROFILE } from '../data/mockData';
-import { getStatus } from '../utils/passes';
+import { MOCK_NOTIFICATIONS, MOCK_PROFILE } from '../data/mockData';
+import { getStatus, toPass } from '../utils/passes';
 import { ROLES, clearSession, getSession } from '../auth';
+import { ROLE_LABELS } from '../constants/portaria';
 
 /**
- * Dashboard do usuário comum (convidado / morador).
+ * Dashboard do Morador (ROLE_USER). O Convidado usa /convidado; o porteiro vê só o histórico de entradas.
  * Orquestra o layout e mantém apenas o estado global da página;
  * cada bloco visual vive em seu próprio componente.
  */
@@ -28,10 +33,13 @@ export default function UserDashboard({ userName: initialName }) {
   const navigate = useNavigate();
   const session = getSession();
   const isPorteiro = session?.role === ROLES.PORTEIRO;
+  // Papel exibido vem SEMPRE da sessão (Morador, Convidado, Porteiro...), nunca de um texto fixo
+  const roleLabel = ROLE_LABELS[session?.role] ?? 'Morador';
 
   // TODO: substituir os mocks por chamadas à API (GET /usuarios/me, /passes, /notificacoes)
   const [profile, setProfile] = useState({
     ...MOCK_PROFILE,
+    role: roleLabel,
     name: initialName || (isPorteiro && session?.user?.name) || MOCK_PROFILE.name,
     ...(isPorteiro && session?.user?.email ? { email: session.user.email } : {}),
   });
@@ -39,11 +47,15 @@ export default function UserDashboard({ userName: initialName }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedPassId, setSelectedPassId] = useState(null);
   const [toast, showToast] = useToast();
+  const [creating, setCreating] = useState(false);
   const now = useNow(30000);
 
+  // Convites do morador (o status muda sozinho quando a portaria aprova/recusa: atualiza a cada 15 s)
+  const convites = useResource(isPorteiro ? () => Promise.resolve([]) : listMeusConvites, isPorteiro ? 'none' : 'my-invites', { refreshMs: 15000 });
+
   const passes = useMemo(
-    () => (isPorteiro ? [] : MOCK_PASSES).map((p) => ({ ...p, status: getStatus(p, now) })),
-    [now, isPorteiro]
+    () => (convites.data ?? []).map((c) => toPass(c, profile.name)).map((p) => ({ ...p, status: getStatus(p, now) })),
+    [convites.data, now, profile.name]
   );
   const selectedPass = passes.find((p) => p.id === selectedPassId) ?? null;
 
@@ -62,10 +74,7 @@ export default function UserDashboard({ userName: initialName }) {
     navigate('/', { replace: true });
   };
 
-  const handleRequestAccess = () => {
-    // TODO: abrir formulário / chamar API de solicitação de acesso
-    showToast('Solicitação de novo acesso enviada ao morador.');
-  };
+  const handleCreated = () => convites.refresh();
 
   const renderContent = () => {
     switch (activeMenu) {
@@ -75,13 +84,23 @@ export default function UserDashboard({ userName: initialName }) {
         return <AccessHistory />;
       default:
         if (isPorteiro) return <EntryHistory />;
+        if (convites.loading) return <TableSkeleton rows={4} />;
+        if (convites.error) return <ErrorState error={convites.error} onRetry={convites.reload} />;
         return (
-          <PassesSection
-            passes={passes}
-            now={now}
-            onSelectPass={setSelectedPassId}
-            onRequestAccess={handleRequestAccess}
-          />
+          <>
+            {passes.length === 0 ? (
+              <div className="rounded-xl border border-white/[0.08] bg-brand-800">
+                <EmptyState icon="fa-ticket" title="Você ainda não criou convites" text="Crie um convite para um visitante. A portaria aprova e o QR Code é liberado." />
+                <div className="pb-8 text-center">
+                  <button type="button" onClick={() => setCreating(true)} className="inline-flex h-10 items-center gap-2 rounded-lg bg-accent px-4 text-sm font-medium text-white hover:bg-accent-hover">
+                    <i className="fas fa-plus text-xs"></i>Novo convite
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <PassesSection passes={passes} now={now} onSelectPass={setSelectedPassId} onRequestAccess={() => setCreating(true)} />
+            )}
+          </>
         );
     }
   };
@@ -96,7 +115,7 @@ export default function UserDashboard({ userName: initialName }) {
         onSelect={handleMenuSelect}
         onLogout={handleLogout}
         userName={profile.name}
-        userRole={isPorteiro ? 'Porteiro' : profile.role}
+        userRole={roleLabel}
       />
 
       <div className="lg:pl-64">
@@ -122,6 +141,10 @@ export default function UserDashboard({ userName: initialName }) {
           onClose={() => setSelectedPassId(null)}
           onToast={showToast}
         />
+      )}
+
+      {creating && !isPorteiro && (
+        <NewInviteModal onClose={() => setCreating(false)} onCreated={handleCreated} />
       )}
 
       <Toast message={toast} />

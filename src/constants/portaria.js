@@ -6,6 +6,7 @@
 export const PORTARIA_MENU_ITEMS = [
   { key: 'overview', label: 'Visão Geral & Acessos', icon: 'fa-gauge-high' },
   { key: 'residents', label: 'Gestão de Moradores', icon: 'fa-users' },
+  { key: 'requests', label: 'Solicitações', icon: 'fa-user-check' },
   { key: 'invites', label: 'Convites Ativos', icon: 'fa-ticket' },
   { key: 'support', label: 'Chamados / Suporte', icon: 'fa-headset' },
 ];
@@ -37,12 +38,13 @@ export const RESIDENT_STATUS = {
 
 export const GUEST_STATUS = {
   valido: { label: 'Válido', tone: 'success' },
-  pendente: { label: 'Pendente', tone: 'warning' },
+  pendente: { label: 'Aguardando portaria', tone: 'warning' },
   expirado: { label: 'Expirado', tone: 'danger' },
   // Convites reais (API): janela futura, usos esgotados e cancelado pelo morador
   agendado: { label: 'Agendado', tone: 'info' },
   utilizado: { label: 'Utilizado', tone: 'neutral' },
   cancelado: { label: 'Cancelado', tone: 'danger' },
+  recusado: { label: 'Recusado', tone: 'danger' },
 };
 
 export const TICKET_STATUS = {

@@ -16,15 +16,19 @@ export const QR_STATUS = {
   usado: { label: 'Usado', tone: 'neutral' },
   expirado: { label: 'Expirado', tone: 'warning' },
   cancelado: { label: 'Cancelado', tone: 'danger' },
+  pendente: { label: 'Aguardando aprovação', tone: 'warning' },
+  recusado: { label: 'Recusado', tone: 'danger' },
 };
 
 // "Ativos" inclui os agendados (ainda utilizáveis)
 export const QR_FILTERS = [
   { key: 'todos', label: 'Todos', match: () => true },
   { key: 'ativos', label: 'Ativos', match: (s) => s === 'ativo' || s === 'agendado' },
+  { key: 'pendente', label: 'Aguardando', match: (s) => s === 'pendente' },
   { key: 'usado', label: 'Usados', match: (s) => s === 'usado' },
   { key: 'expirado', label: 'Expirados', match: (s) => s === 'expirado' },
   { key: 'cancelado', label: 'Cancelados', match: (s) => s === 'cancelado' },
+  { key: 'recusado', label: 'Recusados', match: (s) => s === 'recusado' },
 ];
 
 export const ENTRY_STATUS = {

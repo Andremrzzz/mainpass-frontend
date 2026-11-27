@@ -35,11 +35,21 @@ export default function QrCodesTab({ qrcodes, now, onToast, onArrive, onRenew })
     .filter((q) => current.match(q.status))
     .sort((a, b) => (order[a.status] ?? 2) - (order[b.status] ?? 2) || b.validFrom - a.validFrom);
 
+  const pendingCount = qrcodes.filter((q) => q.status === 'pendente').length;
   const opened = qrcodes.find((q) => q.id === openId && q.status === 'ativo') ?? null;
 
   return (
     <div className="space-y-6">
       <NextAccessCard active={active} upcoming={upcoming} now={now} onOpenQr={(qr) => setOpenId(qr.id)} onArrive={onArrive} onRenew={onRenew} />
+
+      {pendingCount > 0 && (
+        <div role="status" className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-200" data-testid="pending-notice">
+          <i className="fas fa-hourglass-half mt-0.5 text-xs text-amber-400"></i>
+          <p>
+            {pendingCount === 1 ? '1 convite aguarda' : `${pendingCount} convites aguardam`} a aprovação da portaria. O QR Code aparece aqui assim que for aprovado.
+          </p>
+        </div>
+      )}
 
       <section aria-label="Lista de QR Codes">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

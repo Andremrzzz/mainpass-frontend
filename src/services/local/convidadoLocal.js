@@ -1,5 +1,7 @@
 import { getSession } from '../../auth';
 import { ApiError } from '../api';
+import { read as readPortariaDb } from './localDb';
+import { ambienteNome, decisionOf } from './inviteModel';
 
 /* -------------------------------------------------------------------------- */
 /*  Implementação LOCAL (localStorage) do serviço do Convidado.               */
@@ -15,6 +17,7 @@ const VERSION = 1;
 const H = 60 * 60 * 1000;
 const D = 24 * H;
 
+const DEMO_EMAIL = 'fernanda@email.com';
 const memory = {}; // fallback quando o localStorage está bloqueado
 const listeners = new Map(); // chave -> Set<fn(mensagens)>
 
@@ -27,6 +30,27 @@ const createSeed = () => {
   const now = Date.now();
   const user = getSession()?.user;
   const name = user?.name || 'Fernanda Prado';
+
+  // Conta nova (auto-cadastro): sem anfitrião, QR Codes, entradas nem mensagens de outra pessoa.
+  // Os dados de demonstração abaixo pertencem somente à conta de teste fernanda@email.com.
+  if (user?.email && String(user.email).toLowerCase() !== DEMO_EMAIL) {
+    return {
+      version: VERSION,
+      perfil: {
+        nome: name,
+        email: user.email,
+        telefone: '',
+        tipoDocumento: 'CPF',
+        documento: '',
+        anfitriao: null,
+        convite: null,
+        preferencias: { somNotificacao: true, avisoVisual: true, ocultarDadosSensiveis: false },
+      },
+      qrcodes: [],
+      entradas: [],
+      mensagens: [],
+    };
+  }
 
   return {
     version: VERSION,
@@ -115,11 +139,41 @@ if (typeof window !== 'undefined') {
 }
 
 /* --------------------------------- Dados ----------------------------------- */
+/**
+ * Convites criados pelos moradores (banco da Portaria) para este convidado, casados por CPF ou e-mail.
+ * Pendente/recusado vêm SEM token: o QR Code só é entregue depois da aprovação da portaria.
+ */
+const convitesDosMoradores = (perfil) => {
+  const cpf = String(perfil.documento ?? '').replace(/\D/g, '');
+  const email = String(perfil.email ?? '').toLowerCase();
+  return readPortariaDb((db) =>
+    db.invites
+      .filter((i) => (cpf && i.guestCpf === cpf) || (email && String(i.guestEmail ?? '').toLowerCase() === email))
+      .map((i) => {
+        const decision = decisionOf(i);
+        const host = db.residents.find((r) => r.id === i.residentId);
+        return {
+          id: `inv-${i.id}`,
+          token: decision === 'aprovado' ? i.code : null,
+          ambiente: i.ambienteNome ?? ambienteNome(i.ambienteId),
+          local: host ? `Bloco ${host.bloco}` : '',
+          validFrom: i.validFrom,
+          validUntil: i.validUntil,
+          usos: i.usos ?? 0,
+          usosMax: i.usosMax ?? 1,
+          aprovacao: decision === 'pendente' || decision === 'recusado' ? decision : undefined,
+          canceladoEm: decision === 'cancelado' ? i.decididoEm ?? Date.now() : undefined,
+          motivoRecusa: i.motivoRecusa || undefined,
+        };
+      })
+  );
+};
+
 /** Snapshot da tela: { perfil, qrcodes, entradas } */
 export const getConvidado = async () => {
   await delay(250);
   const { perfil, qrcodes, entradas } = load(storageKey());
-  return { perfil, qrcodes, entradas };
+  return { perfil, qrcodes: [...convitesDosMoradores(perfil), ...qrcodes], entradas };
 };
 
 export const updatePreferencias = async (patch) => {

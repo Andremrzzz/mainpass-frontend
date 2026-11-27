@@ -4,6 +4,7 @@ import mascote from '../assets/mascote.png';
 import {
   authenticate,
   AuthError,
+  register,
   getHomeRoute,
   getSession,
   resolveRole,
@@ -172,19 +173,23 @@ export default function Login() {
         // replace: o botão "voltar" não retorna para o login
         navigate(home, { replace: true });
       } else {
-        // TODO: substituir pela chamada real à API (POST /auth/register)
-        await new Promise((resolve) => setTimeout(resolve, 1200));
+        // A conta nasce sempre como Convidado (o perfil não é enviado nem escolhido aqui)
+        await register({ name, email: identifier, password });
 
         setIsLogin(true);
         setIdentifier('');
         resetForm();
-        setNotice('Conta criada com sucesso. Faça login para continuar.');
+        setNotice('Conta de Convidado criada com sucesso. Faça login para continuar.');
       }
     } catch (err) {
       if (err instanceof AuthError && err.code === 'INVALID_CREDENTIALS') {
         setError('CPF/E-mail ou senha incorretos.');
         setPassword('');
         passwordRef.current?.focus();
+      } else if (err instanceof AuthError && err.code === 'EMAIL_IN_USE') {
+        setError('Este e-mail já está cadastrado. Faça login ou use outro e-mail.');
+      } else if (err instanceof AuthError && err.code === 'INVALID_DATA') {
+        setError(err.message && err.message !== 'INVALID_DATA' ? err.message : 'Confira os dados informados.');
       } else {
         setError('Não foi possível concluir a operação. Tente novamente em instantes.');
       }
@@ -222,7 +227,7 @@ export default function Login() {
           <p className="mt-2 text-sm text-slate-400">
             {isLogin
               ? 'Use seu e-mail ou CPF e sua senha para acessar o sistema.'
-              : 'Preencha os dados abaixo para solicitar seu acesso.'}
+              : 'Contas criadas aqui são de Convidado. Contas de Morador são criadas pela portaria.'}
           </p>
 
           {/* Avisos */}

@@ -23,8 +23,19 @@ export default function QrModal({ pass, now, onClose, onToast }) {
   useEscapeKey(onClose);
 
   // Barra de progresso: expirado = cheia, pendente = vazia
-  const progress = status === 'expirado' ? 100 : status === 'pendente' ? 0 : getProgress(pass, now);
-  const remaining = status === 'pendente' ? 'Aguardando aprovação' : fmtRemaining(pass.validUntil - now);
+  const progress = ['pendente', 'recusado'].includes(status) ? 0 : isActive ? getProgress(pass, now) : 100;
+  const remaining =
+    status === 'pendente'
+      ? 'Aguardando aprovação da portaria'
+      : status === 'recusado'
+        ? 'Solicitação recusada'
+        : isActive
+          ? fmtRemaining(pass.validUntil - now)
+          : 'Encerrado';
+  const overlay = {
+    pendente: ['fa-hourglass-half', 'Aguardando aprovação da portaria', 'QR Code ainda não liberado'],
+    recusado: ['fa-ban', 'Solicitação recusada', pass.motivoRecusa || 'QR Code não será liberado'],
+  }[status] ?? ['fa-lock', status === 'expirado' ? 'Acesso expirado' : 'QR Code indisponível', 'QR Code indisponível'];
 
   const handleDownload = () => {
     const src = qrWrapRef.current?.querySelector('canvas');
@@ -97,33 +108,24 @@ export default function QrModal({ pass, now, onClose, onToast }) {
           {/* QR Code */}
           <div className="flex flex-col items-center">
             <div className="relative">
-              <div
-                ref={qrWrapRef}
-                className={`rounded-xl border border-white/10 bg-white p-4 transition-all duration-200 ${
-                  isActive ? '' : 'select-none opacity-40 blur-md'
-                }`}
-              >
-                <QRCodeCanvas
-                  value={getQrValue(pass)}
-                  size={360}
-                  level="H"
-                  style={{ width: 208, height: 208, display: 'block' }}
-                />
-              </div>
-
-              {!isActive && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center px-6 text-center">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-brand-900 text-slate-300">
-                    <i className={`fas ${status === 'pendente' ? 'fa-hourglass-half' : 'fa-lock'}`}></i>
+              {isActive ? (
+                <div ref={qrWrapRef} className="rounded-xl border border-white/10 bg-white p-4">
+                  <QRCodeCanvas value={getQrValue(pass)} size={360} level="H" style={{ width: 208, height: 208, display: 'block' }} />
+                </div>
+              ) : (
+                <div
+                  className="flex h-[240px] w-[240px] flex-col items-center justify-center rounded-xl border border-dashed border-white/15 bg-brand-900 px-6 text-center"
+                  data-testid="qr-unavailable"
+                >
+                  <div className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-brand-800 text-slate-300">
+                    <i className={`fas ${overlay[0]}`}></i>
                   </div>
-                  <p className="mt-3 text-sm font-medium text-slate-100">
-                    {status === 'pendente' ? 'Aguardando aprovação' : 'Acesso expirado'}
-                  </p>
-                  <p className="mt-0.5 text-xs text-slate-400">QR Code indisponível</p>
+                  <p className="mt-3 text-sm font-medium text-slate-100">{overlay[1]}</p>
+                  <p className="mt-0.5 text-xs text-slate-400">{overlay[2]}</p>
                 </div>
               )}
             </div>
-            <p className="mt-4 font-mono text-xs tracking-widest text-slate-500">{pass.code}</p>
+            {isActive && <p className="mt-4 break-all font-mono text-xs tracking-widest text-slate-500">{pass.code}</p>}
           </div>
 
           {/* Validade */}

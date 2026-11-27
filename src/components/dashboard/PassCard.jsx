@@ -37,24 +37,12 @@ export default function PassCard({ pass, now, onOpen }) {
           <p className="mt-0.5 truncate text-xs text-slate-500">Anfitrião: {pass.host}</p>
         </div>
 
-        {/* Prévia do QR (desfocada quando o passe não está válido) */}
-        <div className="relative h-16 w-16 shrink-0 rounded-lg border border-white/10 bg-white p-1.5">
-          <QRCodeCanvas
-            value={getQrValue(pass)}
-            size={120}
-            level="M"
-            style={{
-              width: '100%',
-              height: '100%',
-              display: 'block',
-              filter: isValid ? 'none' : 'blur(2px)',
-              opacity: isValid ? 1 : 0.3,
-            }}
-          />
-          {!isValid && (
-            <div className="absolute inset-0 flex items-center justify-center text-slate-700">
-              <i className={`fas ${pass.status === 'pendente' ? 'fa-hourglass-half' : 'fa-lock'} text-sm`}></i>
-            </div>
+        {/* Prévia do QR: só desenhada quando o convite está aprovado e válido */}
+        <div className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white p-1.5">
+          {isValid ? (
+            <QRCodeCanvas value={getQrValue(pass)} size={120} level="M" style={{ width: '100%', height: '100%', display: 'block' }} />
+          ) : (
+            <i className={`fas ${pass.status === 'pendente' ? 'fa-hourglass-half' : 'fa-lock'} text-sm text-slate-500`}></i>
           )}
         </div>
       </div>
@@ -66,6 +54,11 @@ export default function PassCard({ pass, now, onOpen }) {
             {fmtShort(pass.validFrom)} – {fmtShort(pass.validUntil)}
           </span>
         </div>
+
+        {pass.status === 'pendente' && <p className="mt-3 text-xs font-medium text-amber-400">Aguardando aprovação da portaria</p>}
+        {pass.status === 'recusado' && (
+          <p className="mt-3 text-xs text-rose-400">Recusado pela portaria{pass.motivoRecusa ? `: ${pass.motivoRecusa}` : ''}</p>
+        )}
 
         {isValid && (
           <div className="mt-3">
@@ -79,7 +72,7 @@ export default function PassCard({ pass, now, onOpen }) {
           </div>
         )}
         {pass.status === 'pendente' && (
-          <p className="mt-3 text-xs text-slate-500">Aguardando aprovação do morador.</p>
+          <p className="mt-3 text-xs text-slate-500">QR Code liberado após a aprovação do porteiro.</p>
         )}
         {isExpired && (
           <p className="mt-3 text-xs text-slate-500">Encerrado em {fmtDate(pass.validUntil)}.</p>
